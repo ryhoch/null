@@ -1,0 +1,51 @@
+{
+  "name": "@null/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./crypto": {
+      "import": "./dist/crypto/index.js",
+      "types": "./dist/crypto/index.d.ts"
+    },
+    "./wallet": {
+      "import": "./dist/wallet/index.js",
+      "types": "./dist/wallet/index.d.ts"
+    },
+    "./p2p": {
+      "import": "./dist/p2p/index.js",
+      "types": "./dist/p2p/index.d.ts"
+    },
+    "./messaging": {
+      "import": "./dist/messaging/index.js",
+      "types": "./dist/messaging/index.d.ts"
+    },
+    "./storage": {
+      "import": "./dist/storage/index.js",
+      "types": "./dist/storage/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.6.0",
+    "@noble/hashes": "^1.6.1",
+    "abstract-level": "^2.0.1",
+    "browser-level": "^3.0.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "memory-level": "^2.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

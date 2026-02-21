@@ -1,0 +1,6 @@
+{
+  "name": "@null/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart contracts placeholder — Hardhat or Foundry to be added for DEX/transaction features"
+}
