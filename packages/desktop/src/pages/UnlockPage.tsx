@@ -1,4 +1,5 @@
 import { useState } from "react";
+import logoSrc from "../assets/logo.png";
 import { unseal } from "@null/core/wallet";
 import { PasscodeInput } from "../components/PasscodeInput.js";
 import { useApp } from "../context/AppContext.js";
@@ -77,8 +78,8 @@ export function UnlockPage() {
 
   return (
     <div style={s.page}>
-      <div>
-        <div style={s.title}>NULL</div>
+      <div style={{ textAlign: "center" as const }}>
+        <img src={logoSrc} alt="Null" style={{ width: "200px", display: "block", margin: "0 auto", mixBlendMode: "screen" }} />
         <div style={s.address}>{address}</div>
       </div>
 

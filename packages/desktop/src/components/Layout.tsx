@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import iconSrc from "../assets/icon.png";
 import { useApp } from "../context/AppContext.js";
 
 interface Props {
@@ -63,7 +64,7 @@ export function Layout({ children }: Props) {
     <div style={s.container}>
       <div style={s.sidebar}>
         <div style={s.sidebarHeader}>
-          <div style={s.logo}>NULL</div>
+          <img src={iconSrc} alt="Null" style={{ width: "72px", display: "block", mixBlendMode: "screen" }} />
           <div style={s.address}>
             {state.wallet?.address ?? ""}
           </div>

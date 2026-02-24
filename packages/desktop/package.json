@@ -12,7 +12,8 @@
     "package:dir": "electron-vite build && electron-builder --dir"
   },
   "dependencies": {
-    "classic-level": "^1.4.1"
+    "classic-level": "^1.4.1",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@null/core": "workspace:*",

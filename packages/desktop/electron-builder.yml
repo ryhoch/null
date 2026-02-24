@@ -2,6 +2,11 @@ appId: com.null.desktop
 productName: "Null"
 copyright: Copyright © 2025
 
+publish:
+  provider: github
+  owner: nullprotocol0
+  repo: null-platform
+
 directories:
   output: release
   buildResources: build

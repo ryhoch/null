@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Null — Encrypted P2P Messaging</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --green: #00ff41;
+      --green-dim: #00cc33;
+      --muted: #555;
+      --border: #1e1e1e;
+      --font: "Courier New", Courier, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--green);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      gap: 48px;
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      text-align: center;
+    }
+
+    .logo {
+      width: 260px;
+      display: block;
+      mix-blend-mode: screen;
+    }
+
+    .tagline {
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .features {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      text-align: left;
+      border: 1px solid var(--border);
+      padding: 24px 28px;
+      border-radius: 4px;
+      max-width: 420px;
+      width: 100%;
+    }
+
+    .feature {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .feature span {
+      color: var(--green-dim);
+    }
+
+    .download-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    #download-btn {
+      background: transparent;
+      border: 1px solid var(--green);
+      border-radius: 2px;
+      color: var(--green);
+      cursor: pointer;
+      font-family: var(--font);
+      font-size: 14px;
+      letter-spacing: 0.15em;
+      padding: 14px 28px;
+      width: 100%;
+      transition: background 0.15s;
+    }
+
+    #download-btn:hover:not(:disabled) {
+      background: rgba(0, 255, 65, 0.07);
+    }
+
+    #download-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .version-label {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .notice {
+      max-width: 420px;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .notice-title {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .notice p {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.7;
+      letter-spacing: 0.03em;
+    }
+
+    .notice code {
+      color: var(--green-dim);
+      background: var(--border);
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
+
+    footer {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: var(--green-dim);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hero">
+    <img class="logo" src="logo.png" alt="Null" />
+    <p class="tagline">No servers &nbsp;·&nbsp; No accounts &nbsp;·&nbsp; No metadata</p>
+  </div>
+
+  <div class="features">
+    <div class="feature"><span>→</span> End-to-end encrypted via ECDH + AES-256-GCM</div>
+    <div class="feature"><span>→</span> Peer-to-peer WebRTC — messages never touch a server</div>
+    <div class="feature"><span>→</span> Identity is your Ethereum wallet address</div>
+    <div class="feature"><span>→</span> Offline queue — messages deliver when recipient reconnects</div>
+    <div class="feature"><span>→</span> Open source · self-hostable signaling relay</div>
+  </div>
+
+  <div class="download-wrap">
+    <button id="download-btn" disabled>Loading latest release...</button>
+    <div class="version-label" id="version-label">&nbsp;</div>
+  </div>
+
+  <div class="notice">
+    <div class="notice-title">Windows SmartScreen Warning</div>
+    <p>
+      Because Null is not signed with a paid certificate, Windows may show a
+      <code>"Windows protected your PC"</code> dialog when you run the installer.
+    </p>
+    <p>
+      This is expected. Click <code>More info</code> → <code>Run anyway</code> to proceed.
+      The app is open source — you can verify the build yourself.
+    </p>
+  </div>
+
+  <footer>
+    <a href="https://github.com/nullprotocol0/null-platform" target="_blank" rel="noopener">
+      github.com/nullprotocol0/null-platform
+    </a>
+  </footer>
+
+  <script>
+    (async () => {
+      const btn = document.getElementById("download-btn");
+      const label = document.getElementById("version-label");
+
+      try {
+        const res = await fetch(
+          "https://api.github.com/repos/nullprotocol0/null-platform/releases/latest",
+          { headers: { Accept: "application/vnd.github+json" } }
+        );
+
+        if (!res.ok) throw new Error("No releases found");
+
+        const data = await res.json();
+        const tag = data.tag_name ?? "";
+
+        // Find the Windows installer asset (.exe)
+        const asset = (data.assets ?? []).find(
+          (a) => a.name.endsWith(".exe") && a.name.toLowerCase().includes("setup")
+        ) ?? (data.assets ?? []).find((a) => a.name.endsWith(".exe"));
+
+        if (!asset) throw new Error("No Windows installer in release");
+
+        btn.textContent = "Download for Windows";
+        btn.disabled = false;
+        label.textContent = `${tag} · ${(asset.size / 1024 / 1024).toFixed(1)} MB`;
+
+        btn.addEventListener("click", () => {
+          window.location.href = asset.browser_download_url;
+        });
+      } catch (err) {
+        btn.textContent = "Download (visit GitHub releases)";
+        btn.disabled = false;
+        label.textContent = String(err);
+        btn.addEventListener("click", () => {
+          window.open(
+            "https://github.com/nullprotocol0/null-platform/releases",
+            "_blank"
+          );
+        });
+      }
+    })();
+  </script>
+
+</body>
+</html>

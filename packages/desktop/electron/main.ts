@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, clipboard } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "path";
 import fs from "fs/promises";
 import { fileURLToPath } from "url";
@@ -153,6 +154,11 @@ app.whenReady().then(async () => {
   registerSystemHandlers();
 
   createWindow();
+
+  // Check for updates in production (silent check — notifies user when ready to install)
+  if (process.env["NODE_ENV"] !== "development") {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import logoSrc from "../assets/logo.png";
 import { EVMWalletProvider } from "@null/core/wallet";
 import { seal, unseal } from "@null/core/wallet";
 import { bytesToHex, hexToBytes } from "@null/core/crypto";
@@ -211,10 +212,7 @@ export function OnboardingPage() {
 
   return (
     <div style={s.page}>
-      <div>
-        <div style={s.title}>NULL</div>
-        <div style={s.subtitle}>encrypted · decentralised · p2p</div>
-      </div>
+      <img src={logoSrc} alt="Null" style={{ width: "220px", display: "block", mixBlendMode: "screen" }} />
 
       <div style={s.card}>
         {step === "choose" && (
