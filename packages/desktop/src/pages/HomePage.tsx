@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ConversationItem } from "../components/ConversationItem.js";
 import { useApp } from "../context/AppContext.js";
 import type { PendingContactRequest } from "../context/reducer.js";
@@ -29,6 +30,24 @@ const s = {
     cursor: "pointer",
     fontSize: "12px",
     padding: "6px 14px",
+  },
+  copyBtn: {
+    background: "transparent",
+    border: "1px solid var(--border)",
+    borderRadius: "2px",
+    color: "var(--muted)",
+    cursor: "pointer",
+    fontSize: "12px",
+    padding: "6px 14px",
+  },
+  headerActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  copiedLabel: {
+    fontSize: "11px",
+    color: "var(--green-dim)",
   },
   list: {
     flex: 1,
@@ -120,6 +139,7 @@ function ContactRequestBanner({ request, onAccept, onDismiss }: ContactRequestBa
 
 export function HomePage() {
   const { state, dispatch } = useApp();
+  const [copied, setCopied] = useState(false);
 
   const sorted = Object.values(state.conversations).sort(
     (a, b) => b.lastActivity - a.lastActivity
@@ -131,6 +151,14 @@ export function HomePage() {
   );
 
   const pendingRequests = Object.values(state.pendingContactRequests);
+
+  async function handleCopyLink() {
+    if (!state.wallet) return;
+    const link = `null://connect?address=${state.wallet.address}&pubkey=${state.wallet.pubkeyHex}`;
+    await window.nullBridge.system.copyToClipboard(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   function handleAccept(req: PendingContactRequest) {
     // Add as contact using the pubkey they sent us
@@ -153,12 +181,18 @@ export function HomePage() {
     <div style={s.page}>
       <div style={s.header}>
         <div style={s.title}>Conversations</div>
-        <button
-          style={s.btn}
-          onClick={() => dispatch({ type: "SET_SCREEN", screen: "add-contact" })}
-        >
-          + Add contact
-        </button>
+        <div style={s.headerActions}>
+          {copied && <span style={s.copiedLabel}>copied!</span>}
+          <button style={s.copyBtn} onClick={handleCopyLink} title="Copy your share link to clipboard">
+            share my link
+          </button>
+          <button
+            style={s.btn}
+            onClick={() => dispatch({ type: "SET_SCREEN", screen: "add-contact" })}
+          >
+            + Add contact
+          </button>
+        </div>
       </div>
 
       {/* Pending contact requests */}

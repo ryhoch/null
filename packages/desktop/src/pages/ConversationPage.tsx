@@ -122,6 +122,61 @@ const s = {
     flexShrink: 0,
     background: "var(--bg-surface)",
   },
+  editPanel: {
+    borderTop: "1px solid var(--border)",
+    padding: "16px 20px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "12px",
+    flexShrink: 0,
+    background: "var(--bg-surface)",
+  },
+  editPanelTitle: {
+    fontSize: "10px",
+    color: "var(--muted)",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.15em",
+  },
+  editRow: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+  },
+  editInput: {
+    background: "transparent",
+    border: "1px solid var(--border)",
+    borderRadius: "2px",
+    color: "var(--green)",
+    fontSize: "13px",
+    fontFamily: "var(--font)",
+    padding: "6px 10px",
+    flex: 1,
+    outline: "none",
+  },
+  saveBtn: {
+    background: "transparent",
+    border: "1px solid var(--green)",
+    borderRadius: "2px",
+    color: "var(--green)",
+    cursor: "pointer",
+    fontSize: "11px",
+    padding: "6px 12px",
+  },
+  dangerBtn: {
+    background: "transparent",
+    border: "1px solid var(--red)",
+    borderRadius: "2px",
+    color: "var(--red)",
+    cursor: "pointer",
+    fontSize: "11px",
+    padding: "6px 12px",
+  },
+  dangerRow: {
+    display: "flex",
+    gap: "8px",
+    paddingTop: "4px",
+    borderTop: "1px solid var(--border)",
+  },
 };
 
 export function ConversationPage({ contactAddress, pmRef }: Props) {
@@ -130,6 +185,8 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const contact = state.contacts[contactAddress];
@@ -141,6 +198,55 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
   const label =
     contact?.nickname ??
     `${contactAddress.slice(0, 6)}…${contactAddress.slice(-4)}`;
+
+  function openEdit() {
+    setNicknameInput(contact?.nickname ?? "");
+    setShowQR(false);
+    setShowEdit((v) => !v);
+  }
+
+  async function handleRename(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = nicknameInput.trim();
+    dispatch({ type: "RENAME_CONTACT", address: contactAddress, nickname: trimmed });
+    // Persist
+    if (contact) {
+      const updated = { ...contact, nickname: trimmed || undefined, addedAt: Date.now() };
+      await window.nullBridge.storage.put(`contact:${contactAddress}`, JSON.stringify(updated));
+    }
+    setShowEdit(false);
+  }
+
+  async function handleRemoveContact() {
+    if (!window.confirm(`Remove ${label} from contacts?`)) return;
+    dispatch({ type: "REMOVE_CONTACT", address: contactAddress });
+    await window.nullBridge.storage.del(`contact:${contactAddress}`);
+    setShowEdit(false);
+    // Stay in the conversation — they can still see history, just can't send
+  }
+
+  async function handleClearConversation() {
+    if (!window.confirm("Clear all messages in this conversation? This cannot be undone.")) return;
+    dispatch({ type: "CLEAR_CONVERSATION", address: contactAddress });
+    // Delete all message keys for this contact from storage
+    const rows = await window.nullBridge.storage.list(`msg:${contactAddress}:`);
+    for (const row of rows) {
+      await window.nullBridge.storage.del(row.key);
+    }
+    setShowEdit(false);
+  }
+
+  async function handleDeleteConversation() {
+    if (!window.confirm("Delete this entire conversation and remove contact?")) return;
+    // Delete messages from storage
+    const rows = await window.nullBridge.storage.list(`msg:${contactAddress}:`);
+    for (const row of rows) {
+      await window.nullBridge.storage.del(row.key);
+    }
+    await window.nullBridge.storage.del(`contact:${contactAddress}`);
+    dispatch({ type: "REMOVE_CONTACT", address: contactAddress });
+    dispatch({ type: "DELETE_CONVERSATION", address: contactAddress });
+  }
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -264,9 +370,18 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
         </div>
 
         <div style={s.headerActions}>
+          {contact && (
+            <button
+              style={{ ...s.actionBtn, color: showEdit ? "var(--green)" : "var(--muted)" }}
+              onClick={openEdit}
+              title="Edit contact"
+            >
+              edit
+            </button>
+          )}
           <button
             style={s.actionBtn}
-            onClick={() => setShowQR((v) => !v)}
+            onClick={() => { setShowQR((v) => !v); setShowEdit(false); }}
             title="Show/hide your QR code"
           >
             {showQR ? "hide qr" : "my qr"}
@@ -281,6 +396,36 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
             address={state.wallet.address}
             pubkeyHex={state.wallet.pubkeyHex}
           />
+        </div>
+      )}
+
+      {/* Edit contact panel */}
+      {showEdit && contact && (
+        <div style={s.editPanel}>
+          <div style={s.editPanelTitle}>Edit contact</div>
+          <form onSubmit={handleRename} style={s.editRow}>
+            <input
+              style={s.editInput}
+              type="text"
+              value={nicknameInput}
+              onChange={(e) => setNicknameInput(e.target.value)}
+              placeholder="Nickname (leave blank to clear)"
+              maxLength={40}
+              autoFocus
+            />
+            <button type="submit" style={s.saveBtn}>Save</button>
+          </form>
+          <div style={s.dangerRow}>
+            <button style={s.dangerBtn} onClick={handleClearConversation}>
+              Clear history
+            </button>
+            <button style={s.dangerBtn} onClick={handleRemoveContact}>
+              Remove contact
+            </button>
+            <button style={s.dangerBtn} onClick={handleDeleteConversation}>
+              Delete &amp; remove
+            </button>
+          </div>
         </div>
       )}
 

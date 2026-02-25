@@ -100,7 +100,11 @@ export type AppAction =
   | { type: "LOAD_CONTACTS"; contacts: Record<string, Contact> }
   | { type: "LOAD_CONVERSATIONS"; conversations: Record<string, Conversation> }
   | { type: "ADD_PENDING_REQUEST"; address: string; pubkeyHex: string }
-  | { type: "DISMISS_PENDING_REQUEST"; address: string };
+  | { type: "DISMISS_PENDING_REQUEST"; address: string }
+  | { type: "RENAME_CONTACT"; address: string; nickname: string }
+  | { type: "REMOVE_CONTACT"; address: string }
+  | { type: "DELETE_CONVERSATION"; address: string }
+  | { type: "CLEAR_CONVERSATION"; address: string };
 
 // ── Reducer ────────────────────────────────────────────────────────────────
 
@@ -229,6 +233,53 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const next = { ...state.pendingContactRequests };
       delete next[action.address];
       return { ...state, pendingContactRequests: next };
+    }
+
+    case "RENAME_CONTACT": {
+      const existing = state.contacts[action.address];
+      if (!existing) return state;
+      return {
+        ...state,
+        contacts: {
+          ...state.contacts,
+          [action.address]: { ...existing, nickname: action.nickname || undefined },
+        },
+      };
+    }
+
+    case "REMOVE_CONTACT": {
+      const nextContacts = { ...state.contacts };
+      delete nextContacts[action.address];
+      return { ...state, contacts: nextContacts };
+    }
+
+    case "DELETE_CONVERSATION": {
+      const nextConvs = { ...state.conversations };
+      delete nextConvs[action.address];
+      const nextUnread = { ...state.unreadCounts };
+      delete nextUnread[action.address];
+      return {
+        ...state,
+        conversations: nextConvs,
+        unreadCounts: nextUnread,
+        currentContactAddress:
+          state.currentContactAddress === action.address ? null : state.currentContactAddress,
+        screen:
+          state.currentContactAddress === action.address ? "home" : state.screen,
+      };
+    }
+
+    case "CLEAR_CONVERSATION": {
+      const conv = state.conversations[action.address];
+      if (!conv) return state;
+      return {
+        ...state,
+        conversations: {
+          ...state.conversations,
+          [action.address]: { ...conv, messages: [], lastActivity: 0 },
+        },
+        unreadCounts: { ...state.unreadCounts, [action.address]: 0 },
+      };
     }
 
     default:
