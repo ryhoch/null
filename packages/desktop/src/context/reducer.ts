@@ -39,6 +39,12 @@ export interface ActiveWallet {
   // NOTE: private key is NOT stored here — it lives in AppContext's privateKeyRef
 }
 
+export interface PendingContactRequest {
+  address: string;
+  pubkeyHex: string;
+  receivedAt: number;
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 export interface AppState {
@@ -50,6 +56,7 @@ export interface AppState {
   currentContactAddress: string | null;
   peerStatuses: Record<string, "connecting" | "connected" | "disconnected">;
   unreadCounts: Record<string, number>;
+  pendingContactRequests: Record<string, PendingContactRequest>;
 }
 
 export const initialState: AppState = {
@@ -61,6 +68,7 @@ export const initialState: AppState = {
   currentContactAddress: null,
   peerStatuses: {},
   unreadCounts: {},
+  pendingContactRequests: {},
 };
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -90,7 +98,9 @@ export type AppAction =
       status: "connecting" | "connected" | "disconnected";
     }
   | { type: "LOAD_CONTACTS"; contacts: Record<string, Contact> }
-  | { type: "LOAD_CONVERSATIONS"; conversations: Record<string, Conversation> };
+  | { type: "LOAD_CONVERSATIONS"; conversations: Record<string, Conversation> }
+  | { type: "ADD_PENDING_REQUEST"; address: string; pubkeyHex: string }
+  | { type: "DISMISS_PENDING_REQUEST"; address: string };
 
 // ── Reducer ────────────────────────────────────────────────────────────────
 
@@ -197,6 +207,29 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "LOAD_CONVERSATIONS":
       return { ...state, conversations: action.conversations };
+
+    case "ADD_PENDING_REQUEST": {
+      // Don't overwrite an existing contact or a request we already have
+      if (state.contacts[action.address]) return state;
+      if (state.pendingContactRequests[action.address]) return state;
+      return {
+        ...state,
+        pendingContactRequests: {
+          ...state.pendingContactRequests,
+          [action.address]: {
+            address: action.address,
+            pubkeyHex: action.pubkeyHex,
+            receivedAt: Date.now(),
+          },
+        },
+      };
+    }
+
+    case "DISMISS_PENDING_REQUEST": {
+      const next = { ...state.pendingContactRequests };
+      delete next[action.address];
+      return { ...state, pendingContactRequests: next };
+    }
 
     default:
       return state;

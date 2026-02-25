@@ -17,11 +17,18 @@ type MessageHandler = (msg: SignalingMessage) => void;
  * the `from` field signature. Post-MVP: sign the SDP payload with the private
  * key so recipients can verify sender identity.
  */
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 export class SignalingClient {
   private ws: WebSocket | null = null;
   private handlers = new Map<string, MessageHandler[]>();
   private openResolve: (() => void) | null = null;
   private openReject: ((err: unknown) => void) | null = null;
+
+  private shouldReconnect = false;
+  private reconnectDelay = RECONNECT_BASE_MS;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     readonly url: string,
@@ -30,19 +37,29 @@ export class SignalingClient {
   ) {}
 
   connect(): Promise<void> {
+    this.shouldReconnect = true;
+    return this.openConnection();
+  }
+
+  private openConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.openResolve = resolve;
       this.openReject = reject;
       this.ws = new this.WSImpl(this.url);
 
       this.ws.onopen = () => {
+        this.reconnectDelay = RECONNECT_BASE_MS; // reset backoff on success
         // Register this peer's address with the signaling server
         this.send({ type: "register", payload: null, from: this.myAddress });
         this.openResolve?.();
+        this.openResolve = null;
+        this.openReject = null;
       };
 
-      this.ws.onerror = (e: Event) => {
+      this.ws.onerror = (_e: Event) => {
         this.openReject?.(new Error(`SignalingClient connection error to ${this.url}`));
+        this.openResolve = null;
+        this.openReject = null;
       };
 
       this.ws.onmessage = (event: MessageEvent) => {
@@ -57,8 +74,27 @@ export class SignalingClient {
 
       this.ws.onclose = () => {
         this.emit("disconnected", { type: "peer-unavailable", payload: null });
+        // Reject in-flight connect() promise if it hasn't resolved yet
+        this.openReject?.(new Error("SignalingClient closed before open"));
+        this.openResolve = null;
+        this.openReject = null;
+        if (this.shouldReconnect) {
+          this.scheduleReconnect();
+        }
       };
     });
+  }
+
+  private scheduleReconnect(): void {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.shouldReconnect) return;
+      void this.openConnection().catch(() => {
+        // openConnection will schedule another reconnect via onclose
+      });
+      // Exponential backoff, capped at max
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
+    }, this.reconnectDelay);
   }
 
   on(type: SignalingMessageType | "disconnected", handler: MessageHandler): void {
@@ -81,6 +117,11 @@ export class SignalingClient {
   }
 
   disconnect(): void {
+    this.shouldReconnect = false;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
     this.ws = null;
   }

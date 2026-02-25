@@ -18,6 +18,12 @@ export function App() {
     }
   }, []);
 
+  // Show total unread count in window title
+  useEffect(() => {
+    const total = Object.values(state.unreadCounts).reduce((sum, n) => sum + n, 0);
+    document.title = total > 0 ? `(${total}) Null` : "Null";
+  }, [state.unreadCounts]);
+
   // PeerManager lifecycle — starts when wallet is unlocked, cleans up on unmount
   const pmRef = usePeerManager();
 

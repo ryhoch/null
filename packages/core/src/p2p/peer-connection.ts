@@ -3,10 +3,17 @@ import type { SignalingClient } from "./signaling-client.js";
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  // SECURITY: Google STUN servers will learn the real IP addresses of your users
-  // during ICE negotiation. For production, replace with a self-hosted Coturn
-  // STUN/TURN server. Also handle WebRTC IP leakage in Electron via:
-  //   app.commandLine.appendSwitch('enforce-webrtc-ip-permission-check')
+  // Free public TURN relay — needed when both peers are behind symmetric NAT.
+  // Replace with a self-hosted Coturn instance for production.
+  {
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 type MessageHandler = (data: string) => void;

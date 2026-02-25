@@ -13,7 +13,7 @@ import { MessageBubble } from "../components/MessageBubble.js";
 import { QRCodeDisplay } from "../components/QRCodeDisplay.js";
 import { useApp } from "../context/AppContext.js";
 import type { LocalMessage } from "../context/reducer.js";
-import { msgStorageKey } from "../hooks/usePeerManager.js";
+import { msgStorageKey, wrapEnvelope } from "../hooks/usePeerManager.js";
 
 interface Props {
   contactAddress: string;
@@ -187,8 +187,10 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
       );
 
       // 4. Try to deliver via P2P
+      // Wrap in v1 envelope so the recipient can decrypt even without us in their contacts
+      const wirePayload = wrapEnvelope(encrypted, state.wallet.pubkeyHex);
       const pm = pmRef.current;
-      const sent = pm?.sendTo(contactAddress, JSON.stringify(encrypted)) ?? false;
+      const sent = pm?.sendTo(contactAddress, wirePayload) ?? false;
 
       if (sent) {
         // Immediate delivery
@@ -203,10 +205,10 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
           JSON.stringify({ ...local, status: "delivered" })
         );
       } else {
-        // Peer offline — enqueue encrypted payload
+        // Peer offline — enqueue envelope (includes pubkey for unknown-sender recovery)
         const queueEntry = {
           id: encrypted.id,
-          encryptedPayload: JSON.stringify(encrypted),
+          encryptedPayload: wirePayload,
           recipientAddress: contactAddress,
           timestamp: Date.now(),
           attempts: 0,
@@ -252,8 +254,12 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
             }}
           />
           <span style={s.contactName}>{label}</span>
-          <span style={{ fontSize: "10px", color: "var(--muted)" }}>
-            {contactAddress.slice(0, 10)}…
+          <span style={{ fontSize: "10px", color: peerStatus === "connecting" ? "#ffaa00" : "var(--muted)" }}>
+            {peerStatus === "connected"
+              ? contactAddress.slice(0, 10) + "…"
+              : peerStatus === "connecting"
+              ? "connecting…"
+              : "offline"}
           </span>
         </div>
 
@@ -308,7 +314,13 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={contact ? "Type a message…" : "Add this contact first to send a message"}
+          placeholder={
+            !contact
+              ? "Add this contact first to send a message"
+              : peerStatus !== "connected"
+              ? "Type a message… (will deliver when they come online)"
+              : "Type a message…"
+          }
           disabled={!contact || sending}
           rows={1}
           style={{

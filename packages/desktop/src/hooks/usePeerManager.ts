@@ -15,6 +15,49 @@ function msgStorageKey(contactAddress: string, ts: number, id: string): string {
   return `msg:${contactAddress}:${tsKey(ts)}:${id}`;
 }
 
+// ── Message envelope ────────────────────────────────────────────────────────
+// v1 envelope bundles the sender's pubkey alongside the encrypted payload so
+// recipients can decrypt even if they haven't yet added the sender as a contact.
+
+interface MessageEnvelope {
+  v: 1;
+  senderPubkeyHex: string;
+  msg: EncryptedMessage;
+}
+
+/** Wrap an EncryptedMessage for sending */
+export function wrapEnvelope(
+  encrypted: EncryptedMessage,
+  senderPubkeyHex: string
+): string {
+  const envelope: MessageEnvelope = { v: 1, senderPubkeyHex, msg: encrypted };
+  return JSON.stringify(envelope);
+}
+
+/** Parse incoming data — returns envelope fields or falls back to legacy bare EncryptedMessage */
+function parseIncoming(
+  raw: string
+): { encrypted: EncryptedMessage; senderPubkeyHex: string | undefined } | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (parsed["v"] === 1 && parsed["msg"] != null) {
+    return {
+      encrypted: parsed["msg"] as EncryptedMessage,
+      senderPubkeyHex: typeof parsed["senderPubkeyHex"] === "string"
+        ? parsed["senderPubkeyHex"]
+        : undefined,
+    };
+  }
+
+  // Legacy bare EncryptedMessage (no envelope)
+  return { encrypted: parsed as unknown as EncryptedMessage, senderPubkeyHex: undefined };
+}
+
 // ── Queue drain ──────────────────────────────────────────────────────────────
 
 interface QueueEntry {
@@ -77,8 +120,7 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
   const { state, dispatch, getPrivateKey } = useApp();
   const pmRef = useRef<PeerManager | null>(null);
 
-  // Keep a live ref to contacts so the onMessage callback always sees the
-  // current contact list, not the stale snapshot captured when the effect ran.
+  // Keep live refs so callbacks always see current state, not stale closures.
   const contactsRef = useRef(state.contacts);
   contactsRef.current = state.contacts;
 
@@ -108,15 +150,22 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
       const privKey = getPrivateKey();
       if (!privKey) return;
 
-      const contact: Contact | undefined = contactsRef.current[fromAddress];
-      if (!contact) return; // unknown sender — drop silently
+      const parsed = parseIncoming(rawData);
+      if (!parsed) return;
 
-      let encrypted: EncryptedMessage;
-      try {
-        encrypted = JSON.parse(rawData) as EncryptedMessage;
-      } catch {
-        return;
+      const { encrypted, senderPubkeyHex } = parsed;
+
+      let contact: Contact | undefined = contactsRef.current[fromAddress];
+
+      // Unknown sender — if they included their pubkey in the envelope,
+      // surface a contact request and still decrypt so the message isn't lost.
+      if (!contact && senderPubkeyHex) {
+        dispatch({ type: "ADD_PENDING_REQUEST", address: fromAddress, pubkeyHex: senderPubkeyHex });
+        // Use their embedded pubkey to decrypt
+        contact = { address: fromAddress, pubkeyHex: senderPubkeyHex };
       }
+
+      if (!contact) return; // No pubkey available — can't decrypt, drop
 
       let content: string;
       try {
@@ -126,7 +175,7 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
           senderPubKey: hexToBytes(contact.pubkeyHex),
         });
       } catch {
-        return; // tampered / wrong key
+        return; // Tampered or wrong key
       }
 
       const local: LocalMessage = {
@@ -166,5 +215,5 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
   return pmRef;
 }
 
-// ── Re-export key helper so ConversationPage can use it ─────────────────────
+// ── Re-export helpers so ConversationPage can use them ─────────────────────
 export { msgStorageKey };

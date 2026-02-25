@@ -1,5 +1,6 @@
 import { ConversationItem } from "../components/ConversationItem.js";
 import { useApp } from "../context/AppContext.js";
+import type { PendingContactRequest } from "../context/reducer.js";
 
 const s = {
   page: {
@@ -40,7 +41,82 @@ const s = {
     fontSize: "12px",
     lineHeight: 2,
   },
+  requestBanner: {
+    borderBottom: "1px solid #ffaa0044",
+    background: "#ffaa0011",
+    padding: "12px 16px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "8px",
+  },
+  requestLabel: {
+    fontSize: "10px",
+    color: "#ffaa00",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.15em",
+  },
+  requestRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+  },
+  requestAddress: {
+    fontSize: "12px",
+    color: "var(--green)",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  },
+  requestActions: {
+    display: "flex",
+    gap: "6px",
+    flexShrink: 0,
+  },
+  acceptBtn: {
+    background: "transparent",
+    border: "1px solid var(--green)",
+    borderRadius: "2px",
+    color: "var(--green)",
+    cursor: "pointer",
+    fontSize: "11px",
+    padding: "4px 10px",
+  },
+  dismissBtn: {
+    background: "transparent",
+    border: "1px solid var(--border)",
+    borderRadius: "2px",
+    color: "var(--muted)",
+    cursor: "pointer",
+    fontSize: "11px",
+    padding: "4px 10px",
+  },
 };
+
+interface ContactRequestBannerProps {
+  request: PendingContactRequest;
+  onAccept: () => void;
+  onDismiss: () => void;
+}
+
+function ContactRequestBanner({ request, onAccept, onDismiss }: ContactRequestBannerProps) {
+  const short = `${request.address.slice(0, 10)}…${request.address.slice(-6)}`;
+  return (
+    <div style={s.requestBanner}>
+      <div style={s.requestLabel}>Contact Request</div>
+      <div style={s.requestRow}>
+        <span style={s.requestAddress} title={request.address}>
+          {short} wants to message you
+        </span>
+        <div style={s.requestActions}>
+          <button style={s.acceptBtn} onClick={onAccept}>Accept</button>
+          <button style={s.dismissBtn} onClick={onDismiss}>Dismiss</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function HomePage() {
   const { state, dispatch } = useApp();
@@ -54,6 +130,25 @@ export function HomePage() {
     (c) => !state.conversations[c.address]
   );
 
+  const pendingRequests = Object.values(state.pendingContactRequests);
+
+  function handleAccept(req: PendingContactRequest) {
+    // Add as contact using the pubkey they sent us
+    const contact = { address: req.address, pubkeyHex: req.pubkeyHex };
+    void window.nullBridge.storage.put(
+      `contact:${req.address}`,
+      JSON.stringify({ ...contact, addedAt: Date.now() })
+    );
+    dispatch({ type: "ADD_CONTACT", contact });
+    dispatch({ type: "DISMISS_PENDING_REQUEST", address: req.address });
+    // Open the conversation so they can see the message that already arrived
+    dispatch({ type: "OPEN_CONVERSATION", contactAddress: req.address });
+  }
+
+  function handleDismiss(address: string) {
+    dispatch({ type: "DISMISS_PENDING_REQUEST", address });
+  }
+
   return (
     <div style={s.page}>
       <div style={s.header}>
@@ -65,6 +160,16 @@ export function HomePage() {
           + Add contact
         </button>
       </div>
+
+      {/* Pending contact requests */}
+      {pendingRequests.map((req) => (
+        <ContactRequestBanner
+          key={req.address}
+          request={req}
+          onAccept={() => handleAccept(req)}
+          onDismiss={() => handleDismiss(req.address)}
+        />
+      ))}
 
       <div style={s.list}>
         {sorted.map((conv) => (
@@ -111,7 +216,7 @@ export function HomePage() {
           </button>
         ))}
 
-        {sorted.length === 0 && newContacts.length === 0 && (
+        {sorted.length === 0 && newContacts.length === 0 && pendingRequests.length === 0 && (
           <div style={s.empty}>
             No contacts yet.
             <br />
