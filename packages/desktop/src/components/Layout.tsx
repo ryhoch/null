@@ -38,6 +38,7 @@ const s = {
     padding: "8px 0",
     display: "flex",
     flexDirection: "column" as const,
+    flex: 1,
   },
   navBtn: {
     background: "transparent",
@@ -48,6 +49,24 @@ const s = {
     padding: "10px 16px",
     textAlign: "left" as const,
     letterSpacing: "0.1em",
+  },
+  sidebarFooter: {
+    padding: "12px 16px",
+    borderTop: "1px solid var(--border)",
+  },
+  downloadLink: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11px",
+    color: "var(--green-dim)",
+    textDecoration: "none",
+    letterSpacing: "0.08em",
+    cursor: "pointer",
+    background: "transparent",
+    border: "none",
+    fontFamily: "var(--font)",
+    padding: 0,
   },
   main: {
     flex: 1,
@@ -88,6 +107,16 @@ export function Layout({ children }: Props) {
             onClick={() => dispatch({ type: "SET_SCREEN", screen: "add-contact" })}
           >
             + Add contact
+          </button>
+        </div>
+
+        <div style={s.sidebarFooter}>
+          <button
+            style={s.downloadLink}
+            onClick={() => window.open("https://github.com/xxcvv2/null-platform/releases/latest", "_blank")}
+            title="Download latest Windows release"
+          >
+            ↓ Download for Windows
           </button>
         </div>
       </div>
