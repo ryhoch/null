@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, clipboard, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import path from "path";
 import fs from "fs/promises";
@@ -141,6 +141,25 @@ function registerSystemHandlers(): void {
       return filePath;
     }
   );
+
+  // Write wallet identity (address + pubkey only — NO private key) to a
+  // shared location readable by Nova.
+  ipcMain.handle(
+    "null:system:write-identity",
+    async (_e, { address, pubkeyHex }: { address: string; pubkeyHex: string }) => {
+      const identityPath = path.join(app.getPath("appData"), "null-identity.json");
+      await fs.writeFile(
+        identityPath,
+        JSON.stringify({ address, pubkeyHex, updatedAt: Date.now() }),
+        "utf8"
+      );
+    }
+  );
+
+  // Launch Nova via its registered nova:// deep-link protocol.
+  ipcMain.handle("null:system:launch-nova", async () => {
+    await shell.openExternal("nova://open");
+  });
 }
 
 // ── Deep link relay ──────────────────────────────────────────────────────────

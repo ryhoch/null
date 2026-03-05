@@ -22,6 +22,10 @@ export interface NullBridge {
     readFileBytes(path: string): Promise<Uint8Array>;
     copyToClipboard(text: string): Promise<void>;
     saveFile(fileName: string, bytes: number[]): Promise<string>;
+    /** Write wallet address+pubkey to shared location for Nova to read. Never includes private key. */
+    writeIdentity(address: string, pubkeyHex: string): Promise<void>;
+    /** Launch Nova desktop app via nova:// protocol. */
+    launchNova(): Promise<void>;
   };
 
   /**

@@ -121,15 +121,35 @@ export function Layout({ children }: Props) {
         </div>
 
         <div style={s.sidebarFooter}>
+          {/* Open Nova — primary cross-app CTA */}
           <button
-            style={s.downloadBtn}
-            onClick={() => window.open("https://github.com/xxcvv2/null/releases/latest", "_blank")}
+            style={{ ...s.downloadBtn, marginBottom: "6px" }}
+            onClick={() => void window.nullBridge.system.launchNova()}
             onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,100,0.08)" }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent" }}
+            title="Open Nova DeFi"
           >
-            ↓ Download for Windows
+            ↗ Open Nova
           </button>
-          <div style={s.downloadLabel}>latest release · github.com/xxcvv2/null</div>
+          {/* Download both apps */}
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button
+              style={{ ...s.downloadBtn, flex: 1, fontSize: "10px", padding: "6px 8px" }}
+              onClick={() => window.open("https://github.com/xxcvv2/null/releases/latest", "_blank")}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,100,0.08)" }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent" }}
+            >
+              ↓ Null
+            </button>
+            <button
+              style={{ ...s.downloadBtn, flex: 1, fontSize: "10px", padding: "6px 8px" }}
+              onClick={() => window.open("https://github.com/xxcvv2/nova/releases/latest", "_blank")}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,255,100,0.08)" }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent" }}
+            >
+              ↓ Nova
+            </button>
+          </div>
         </div>
       </div>
 

@@ -54,6 +54,12 @@ contextBridge.exposeInMainWorld("nullBridge", {
 
     saveFile: (fileName: string, bytes: number[]): Promise<string> =>
       ipcRenderer.invoke("null:system:save-file", { fileName, bytes }),
+
+    writeIdentity: (address: string, pubkeyHex: string): Promise<void> =>
+      ipcRenderer.invoke("null:system:write-identity", { address, pubkeyHex }),
+
+    launchNova: (): Promise<void> =>
+      ipcRenderer.invoke("null:system:launch-nova"),
   },
 
   // ── Deep link protocol (null://) ────────────────────────────────────────────
