@@ -131,6 +131,16 @@ function registerSystemHandlers(): void {
       clipboard.writeText(text);
     }
   );
+
+  ipcMain.handle(
+    "null:system:save-file",
+    async (_e, { fileName, bytes }: { fileName: string; bytes: number[] }) => {
+      const downloadsPath = app.getPath("downloads");
+      const filePath = path.join(downloadsPath, fileName);
+      await fs.writeFile(filePath, Buffer.from(bytes));
+      return filePath;
+    }
+  );
 }
 
 // ── Deep link relay ──────────────────────────────────────────────────────────

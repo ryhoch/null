@@ -75,6 +75,11 @@ export class PeerManager {
     return this.peers.get(remoteAddress)?.send(data) ?? false;
   }
 
+  /** Returns the data channel buffered amount for a peer (0 if not connected). */
+  getBufferedAmount(remoteAddress: string): number {
+    return this.peers.get(remoteAddress)?.getBufferedAmount() ?? 0;
+  }
+
   /** Close and remove a specific peer connection. */
   closePeer(remoteAddress: string): void {
     this.peers.get(remoteAddress)?.close();

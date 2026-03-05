@@ -51,6 +51,9 @@ contextBridge.exposeInMainWorld("nullBridge", {
 
     copyToClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke("null:system:copy-to-clipboard", { text }),
+
+    saveFile: (fileName: string, bytes: number[]): Promise<string> =>
+      ipcRenderer.invoke("null:system:save-file", { fileName, bytes }),
   },
 
   // ── Deep link protocol (null://) ────────────────────────────────────────────

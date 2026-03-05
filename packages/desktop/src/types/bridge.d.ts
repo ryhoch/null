@@ -21,6 +21,7 @@ export interface NullBridge {
     ): Promise<string | null>;
     readFileBytes(path: string): Promise<Uint8Array>;
     copyToClipboard(text: string): Promise<void>;
+    saveFile(fileName: string, bytes: number[]): Promise<string>;
   };
 
   /**

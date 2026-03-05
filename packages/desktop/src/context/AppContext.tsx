@@ -52,6 +52,16 @@ async function loadData(
 
   // Conversation messages (sorted by key = sorted by timestamp)
   const msgRows = await bridge.storage.list("msg:");
+
+  // File bytes keyed by "contactAddress:transferId"
+  const fileRows = await bridge.storage.list("file:");
+  const fileMap = new Map<string, string>();
+  for (const { key, value } of fileRows) {
+    // key format: "file:${contactAddress}:${transferId}"
+    const withoutPrefix = key.slice("file:".length);
+    fileMap.set(withoutPrefix, value);
+  }
+
   const conversations: Record<string, Conversation> = {};
   for (const { value } of msgRows) {
     try {
@@ -64,6 +74,16 @@ async function loadData(
           messages: [],
           lastActivity: 0,
         };
+      }
+      // Rehydrate file bytes from LevelDB
+      if (m.fileRef) {
+        const b64 = fileMap.get(`${peer}:${m.fileRef.transferId}`);
+        if (b64) {
+          const binary = atob(b64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          m.fileRef = { ...m.fileRef, bytes };
+        }
       }
       conversations[peer]!.messages.push(m);
       conversations[peer]!.lastActivity = Math.max(

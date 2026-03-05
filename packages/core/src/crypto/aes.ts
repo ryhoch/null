@@ -126,3 +126,83 @@ export async function decryptAes(
 
   return new TextDecoder().decode(plainBuffer);
 }
+
+// ── Binary helpers ────────────────────────────────────────────────────────────
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Encrypt raw bytes with AES-256-GCM.
+ * Returns hex-encoded iv and base64-encoded ciphertext (more compact than hex for binary data).
+ */
+export async function encryptBytesAes(
+  key: CryptoKey,
+  plaintext: Uint8Array
+): Promise<{ iv: string; ciphertext: string }> {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+
+  const ivBuffer = iv.buffer.slice(
+    iv.byteOffset,
+    iv.byteOffset + iv.byteLength
+  ) as ArrayBuffer;
+  const plainBuffer = plaintext.buffer.slice(
+    plaintext.byteOffset,
+    plaintext.byteOffset + plaintext.byteLength
+  ) as ArrayBuffer;
+
+  const ciphertextBuffer = await globalThis.crypto.subtle.encrypt(
+    { name: ALGORITHM, iv: ivBuffer },
+    key,
+    plainBuffer
+  );
+
+  return {
+    iv: bytesToHex(iv),
+    ciphertext: uint8ToBase64(new Uint8Array(ciphertextBuffer)),
+  };
+}
+
+/**
+ * Decrypt AES-256-GCM binary ciphertext.
+ * iv is hex-encoded; ciphertext is base64-encoded.
+ */
+export async function decryptBytesAes(
+  key: CryptoKey,
+  iv: string,
+  ciphertext: string
+): Promise<Uint8Array> {
+  const ivBytes = hexToBytes(iv);
+  const ctBytes = base64ToUint8(ciphertext);
+
+  const ivBuffer = ivBytes.buffer.slice(
+    ivBytes.byteOffset,
+    ivBytes.byteOffset + ivBytes.byteLength
+  ) as ArrayBuffer;
+  const ctBuffer = ctBytes.buffer.slice(
+    ctBytes.byteOffset,
+    ctBytes.byteOffset + ctBytes.byteLength
+  ) as ArrayBuffer;
+
+  const plainBuffer = await globalThis.crypto.subtle.decrypt(
+    { name: ALGORITHM, iv: ivBuffer },
+    key,
+    ctBuffer
+  );
+
+  return new Uint8Array(plainBuffer);
+}

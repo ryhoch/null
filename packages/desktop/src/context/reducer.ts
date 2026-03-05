@@ -12,6 +12,17 @@ export type AppScreen =
 
 // ── Domain types ───────────────────────────────────────────────────────────
 
+export interface FileRef {
+  transferId: string;
+  fileName: string;
+  mimeType: string;
+  totalSize: number;
+  totalChunks?: number;
+  receivedChunks?: number; // progress indicator (in-memory only)
+  bytes?: Uint8Array;      // assembled bytes (in-memory only)
+  savedPath?: string;
+}
+
 export interface LocalMessage {
   id: string;
   fromAddress: string;
@@ -19,6 +30,7 @@ export interface LocalMessage {
   content: string; // plaintext — stored locally
   timestamp: number;
   status: "pending" | "delivered" | "failed";
+  fileRef?: FileRef;
 }
 
 export interface Contact {
@@ -104,7 +116,13 @@ export type AppAction =
   | { type: "RENAME_CONTACT"; address: string; nickname: string }
   | { type: "REMOVE_CONTACT"; address: string }
   | { type: "DELETE_CONVERSATION"; address: string }
-  | { type: "CLEAR_CONVERSATION"; address: string };
+  | { type: "CLEAR_CONVERSATION"; address: string }
+  | {
+      type: "UPDATE_FILE_REF";
+      contactAddress: string;
+      messageId: string;
+      fileRef: Partial<FileRef>;
+    };
 
 // ── Reducer ────────────────────────────────────────────────────────────────
 
@@ -238,12 +256,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "RENAME_CONTACT": {
       const existing = state.contacts[action.address];
       if (!existing) return state;
+      const renamed: Contact = action.nickname
+        ? { address: existing.address, pubkeyHex: existing.pubkeyHex, nickname: action.nickname }
+        : { address: existing.address, pubkeyHex: existing.pubkeyHex };
       return {
         ...state,
-        contacts: {
-          ...state.contacts,
-          [action.address]: { ...existing, nickname: action.nickname || undefined },
-        },
+        contacts: { ...state.contacts, [action.address]: renamed },
       };
     }
 
@@ -279,6 +297,25 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           [action.address]: { ...conv, messages: [], lastActivity: 0 },
         },
         unreadCounts: { ...state.unreadCounts, [action.address]: 0 },
+      };
+    }
+
+    case "UPDATE_FILE_REF": {
+      const conv = state.conversations[action.contactAddress];
+      if (!conv) return state;
+      return {
+        ...state,
+        conversations: {
+          ...state.conversations,
+          [action.contactAddress]: {
+            ...conv,
+            messages: conv.messages.map((m) =>
+              m.id === action.messageId
+                ? { ...m, fileRef: m.fileRef ? { ...m.fileRef, ...action.fileRef } : (action.fileRef as FileRef) }
+                : m
+            ),
+          },
+        },
       };
     }
 

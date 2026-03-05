@@ -3,6 +3,13 @@ import { PeerManager } from "@null/core/p2p";
 import { decryptMessage } from "@null/core/messaging";
 import { hexToBytes } from "@null/core/crypto";
 import type { EncryptedMessage } from "@null/core/crypto";
+import {
+  parseFileWireMessage,
+  deriveFileKey,
+  decryptFileChunk,
+  CHUNK_SIZE,
+  type FileMetaChunk,
+} from "@null/core/messaging";
 import { useApp } from "../context/AppContext.js";
 import type { LocalMessage, Contact } from "../context/reducer.js";
 
@@ -114,6 +121,15 @@ async function drainQueueForPeer(
   }
 }
 
+// ── File transfer buffer ──────────────────────────────────────────────────────
+
+interface FileBuffer {
+  meta: FileMetaChunk;
+  chunks: Map<number, Uint8Array>;
+  messageId: string;
+  fromAddress: string;
+}
+
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function usePeerManager(): MutableRefObject<PeerManager | null> {
@@ -123,6 +139,9 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
   // Keep live refs so callbacks always see current state, not stale closures.
   const contactsRef = useRef(state.contacts);
   contactsRef.current = state.contacts;
+
+  // In-memory file transfer buffers (cleared on unmount)
+  const fileBuffers = useRef(new Map<string, FileBuffer>());
 
   useEffect(() => {
     if (!state.wallet) return;
@@ -150,6 +169,119 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
       const privKey = getPrivateKey();
       if (!privKey) return;
 
+      // ── File protocol messages ─────────────────────────────────────────────
+      const fileMsg = parseFileWireMessage(rawData);
+      if (fileMsg) {
+        let contact: Contact | undefined = contactsRef.current[fromAddress];
+        if (!contact) return; // Can't decrypt without pubkey
+
+        if (fileMsg.type === "file-meta") {
+          const meta = fileMsg;
+          // Create a placeholder LocalMessage for this transfer
+          const local: LocalMessage = {
+            id: meta.transferId,
+            fromAddress,
+            toAddress: walletAddress,
+            content: "",
+            timestamp: meta.timestamp,
+            status: "delivered",
+            fileRef: {
+              transferId: meta.transferId,
+              fileName: meta.fileName,
+              mimeType: meta.mimeType,
+              totalSize: meta.totalSize,
+              totalChunks: meta.totalChunks,
+              receivedChunks: 0,
+            },
+          };
+          fileBuffers.current.set(meta.transferId, {
+            meta,
+            chunks: new Map(),
+            messageId: meta.transferId,
+            fromAddress,
+          });
+          dispatch({ type: "RECEIVE_MESSAGE", contactAddress: fromAddress, message: local });
+
+          // Persist placeholder (without bytes) to storage
+          const storageMsg = { ...local, fileRef: { ...local.fileRef, bytes: undefined } };
+          void window.nullBridge.storage.put(
+            msgStorageKey(fromAddress, meta.timestamp, meta.transferId),
+            JSON.stringify(storageMsg)
+          );
+
+          // OS notification
+          if (document.hidden && typeof Notification !== "undefined") {
+            const name = contact.nickname ?? `${fromAddress.slice(0, 6)}…${fromAddress.slice(-4)}`;
+            new Notification(`Null — ${name}`, {
+              body: `Sent you a file: ${meta.fileName}`,
+              silent: false,
+            });
+          }
+          return;
+        }
+
+        if (fileMsg.type === "file-chunk") {
+          const buf = fileBuffers.current.get(fileMsg.transferId);
+          if (!buf) return;
+
+          try {
+            const key = await deriveFileKey(privKey, hexToBytes(contact.pubkeyHex));
+            const chunkBytes = await decryptFileChunk(key, fileMsg.data, fileMsg.iv);
+            buf.chunks.set(fileMsg.index, chunkBytes);
+
+            // Update progress
+            dispatch({
+              type: "UPDATE_FILE_REF",
+              contactAddress: fromAddress,
+              messageId: buf.messageId,
+              fileRef: { receivedChunks: buf.chunks.size },
+            });
+
+            // Check if all chunks received
+            if (buf.chunks.size === buf.meta.totalChunks) {
+              // Assemble
+              const assembled = new Uint8Array(buf.meta.totalSize);
+              let offset = 0;
+              for (let i = 1; i <= buf.meta.totalChunks; i++) {
+                const chunk = buf.chunks.get(i)!;
+                assembled.set(chunk, offset);
+                offset += chunk.byteLength;
+              }
+              fileBuffers.current.delete(fileMsg.transferId);
+
+              // Update message with bytes
+              dispatch({
+                type: "UPDATE_FILE_REF",
+                contactAddress: fromAddress,
+                messageId: buf.messageId,
+                fileRef: { bytes: assembled, receivedChunks: buf.meta.totalChunks },
+              });
+
+              // Persist bytes to LevelDB (base64) for session persistence
+              let b64 = "";
+              for (let i = 0; i < assembled.byteLength; i++) {
+                b64 += String.fromCharCode(assembled[i]!);
+              }
+              void window.nullBridge.storage.put(
+                `file:${fromAddress}:${buf.meta.transferId}`,
+                btoa(b64)
+              );
+            }
+          } catch {
+            // Decryption failure — skip chunk
+          }
+          return;
+        }
+
+        if (fileMsg.type === "file-complete") {
+          // Sender confirms all chunks sent — if we're still missing some,
+          // they'll be noted as incomplete. No action needed for now.
+          return;
+        }
+        return;
+      }
+
+      // ── Chat messages ────────────────────────────────────────────────────
       const parsed = parseIncoming(rawData);
       if (!parsed) return;
 
@@ -209,6 +341,7 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
     return () => {
       pm.closeAll();
       pmRef.current = null;
+      fileBuffers.current.clear();
     };
   }, [state.wallet?.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -216,4 +349,4 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
 }
 
 // ── Re-export helpers so ConversationPage can use them ─────────────────────
-export { msgStorageKey };
+export { msgStorageKey, CHUNK_SIZE };

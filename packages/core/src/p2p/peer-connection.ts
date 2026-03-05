@@ -117,6 +117,10 @@ export class NullPeerConnection {
     return this.pc.connectionState;
   }
 
+  getBufferedAmount(): number {
+    return this.dataChannel?.bufferedAmount ?? 0;
+  }
+
   private setupPeerConnectionHandlers(): void {
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
