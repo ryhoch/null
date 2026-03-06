@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { deriveSharedSecret } from "../crypto/ecdh.js";
 import { importAesKey, encryptBytesAes, decryptBytesAes } from "../crypto/aes.js";
 
-export const CHUNK_SIZE = 65536; // 64KB plaintext per chunk
+export const CHUNK_SIZE = 16384; // 16KB plaintext per chunk — keeps JSON-encoded chunks ≤22KB, safe for all TURN relays
 export const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
 // ── Wire protocol types ───────────────────────────────────────────────────────

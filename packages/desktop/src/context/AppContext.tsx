@@ -14,8 +14,10 @@ import {
   type AppAction,
   type Contact,
   type Conversation,
+  type GroupConversation,
   type LocalMessage,
 } from "./reducer.js";
+import type { Group } from "@null/core/messaging";
 import type { KeyStore } from "@null/core/wallet";
 
 // ── Context value shape ────────────────────────────────────────────────────
@@ -95,6 +97,40 @@ async function loadData(
     }
   }
   dispatch({ type: "LOAD_CONVERSATIONS", conversations });
+
+  // Groups
+  const groupRows = await bridge.storage.list("group:");
+  const groups: Record<string, Group> = {};
+  for (const { value } of groupRows) {
+    try {
+      const g = JSON.parse(value) as Group;
+      groups[g.id] = g;
+    } catch {
+      // skip malformed entries
+    }
+  }
+  dispatch({ type: "LOAD_GROUPS", groups });
+
+  // Group conversation messages
+  const gmsgRows = await bridge.storage.list("gmsg:");
+  const groupConversations: Record<string, GroupConversation> = {};
+  for (const { value } of gmsgRows) {
+    try {
+      const m = JSON.parse(value) as LocalMessage;
+      const gid = m.toAddress; // groupId stored as toAddress
+      if (!groupConversations[gid]) {
+        groupConversations[gid] = { groupId: gid, messages: [], lastActivity: 0 };
+      }
+      groupConversations[gid]!.messages.push(m);
+      groupConversations[gid]!.lastActivity = Math.max(
+        groupConversations[gid]!.lastActivity,
+        m.timestamp
+      );
+    } catch {
+      // skip malformed entries
+    }
+  }
+  dispatch({ type: "LOAD_GROUP_CONVERSATIONS", groupConversations });
 }
 
 // ── Provider ───────────────────────────────────────────────────────────────

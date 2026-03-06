@@ -1,14 +1,17 @@
 import type { KeyStore } from "@null/core/wallet";
+import type { Group } from "@null/core/messaging";
 
 // ── Screen ─────────────────────────────────────────────────────────────────
 
 export type AppScreen =
-  | "loading"      // initial — checking storage for existing keystore
-  | "onboarding"   // first launch — generate or import wallet
-  | "unlock"       // keystore found, waiting for passcode
-  | "home"         // wallet unlocked, conversation list
-  | "conversation" // viewing a specific thread
-  | "add-contact"; // add contact via QR or share link
+  | "loading"
+  | "onboarding"
+  | "unlock"
+  | "home"
+  | "conversation"
+  | "group-conversation"
+  | "add-contact"
+  | "create-group";
 
 // ── Domain types ───────────────────────────────────────────────────────────
 
@@ -18,24 +21,38 @@ export interface FileRef {
   mimeType: string;
   totalSize: number;
   totalChunks?: number;
-  receivedChunks?: number; // progress indicator (in-memory only)
-  bytes?: Uint8Array;      // assembled bytes (in-memory only)
+  receivedChunks?: number;
+  bytes?: Uint8Array;
   savedPath?: string;
 }
 
 export interface LocalMessage {
   id: string;
   fromAddress: string;
-  toAddress: string;
-  content: string; // plaintext — stored locally
+  toAddress: string;       // contact address or groupId
+  content: string;
   timestamp: number;
   status: "pending" | "delivered" | "failed";
   fileRef?: FileRef;
+  /** Unix ms — message is auto-deleted after this time */
+  expiresAt?: number;
+  /** Payment message */
+  payment?: PaymentRef;
+}
+
+export interface PaymentRef {
+  txHash: string;
+  amount: string;   // human-readable e.g. "0.01"
+  token: string;    // e.g. "ETH", "USDC", "XCV"
+  decimals: number;
+  fromAddress: string;
+  toAddress: string;
+  chainId: number;
 }
 
 export interface Contact {
-  address: string;    // EIP-55 checksummed 0x address
-  pubkeyHex: string;  // hex of 33-byte compressed secp256k1 public key
+  address: string;
+  pubkeyHex: string;
   nickname?: string;
 }
 
@@ -43,12 +60,20 @@ export interface Conversation {
   contactAddress: string;
   messages: LocalMessage[];
   lastActivity: number;
+  /** If set, messages auto-delete after this many ms */
+  disappearAfterMs?: number;
+}
+
+export interface GroupConversation {
+  groupId: string;
+  messages: LocalMessage[];
+  lastActivity: number;
+  disappearAfterMs?: number;
 }
 
 export interface ActiveWallet {
   address: string;
   pubkeyHex: string;
-  // NOTE: private key is NOT stored here — it lives in AppContext's privateKeyRef
 }
 
 export interface PendingContactRequest {
@@ -56,6 +81,12 @@ export interface PendingContactRequest {
   pubkeyHex: string;
   receivedAt: number;
 }
+
+export type CallState =
+  | { status: "idle" }
+  | { status: "outgoing"; peerAddress: string; video: boolean; startedAt: number }
+  | { status: "incoming"; peerAddress: string; video: boolean; callId: string }
+  | { status: "active"; peerAddress: string; video: boolean; startedAt: number; muted: boolean; cameraOff: boolean };
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -65,10 +96,14 @@ export interface AppState {
   wallet: ActiveWallet | null;
   contacts: Record<string, Contact>;
   conversations: Record<string, Conversation>;
+  groups: Record<string, Group>;
+  groupConversations: Record<string, GroupConversation>;
   currentContactAddress: string | null;
+  currentGroupId: string | null;
   peerStatuses: Record<string, "connecting" | "connected" | "disconnected">;
-  unreadCounts: Record<string, number>;
+  unreadCounts: Record<string, number>;          // keyed by contact address or group id
   pendingContactRequests: Record<string, PendingContactRequest>;
+  call: CallState;
 }
 
 export const initialState: AppState = {
@@ -77,10 +112,14 @@ export const initialState: AppState = {
   wallet: null,
   contacts: {},
   conversations: {},
+  groups: {},
+  groupConversations: {},
   currentContactAddress: null,
+  currentGroupId: null,
   peerStatuses: {},
   unreadCounts: {},
   pendingContactRequests: {},
+  call: { status: "idle" },
 };
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -88,27 +127,13 @@ export const initialState: AppState = {
 export type AppAction =
   | { type: "SET_SCREEN"; screen: AppScreen }
   | { type: "SET_KEYSTORE"; keystore: KeyStore }
-  | {
-      type: "UNLOCK_WALLET";
-      wallet: ActiveWallet;
-      // privateKey is captured by AppContext's ref — reducer receives it zeroed
-      privateKey: Uint8Array;
-    }
+  | { type: "UNLOCK_WALLET"; wallet: ActiveWallet; privateKey: Uint8Array }
   | { type: "ADD_CONTACT"; contact: Contact }
   | { type: "OPEN_CONVERSATION"; contactAddress: string }
   | { type: "RECEIVE_MESSAGE"; contactAddress: string; message: LocalMessage }
   | { type: "SEND_MESSAGE"; contactAddress: string; message: LocalMessage }
-  | {
-      type: "UPDATE_MESSAGE_STATUS";
-      contactAddress: string;
-      messageId: string;
-      status: "delivered" | "failed";
-    }
-  | {
-      type: "SET_PEER_STATUS";
-      address: string;
-      status: "connecting" | "connected" | "disconnected";
-    }
+  | { type: "UPDATE_MESSAGE_STATUS"; contactAddress: string; messageId: string; status: "delivered" | "failed" }
+  | { type: "SET_PEER_STATUS"; address: string; status: "connecting" | "connected" | "disconnected" }
   | { type: "LOAD_CONTACTS"; contacts: Record<string, Contact> }
   | { type: "LOAD_CONVERSATIONS"; conversations: Record<string, Conversation> }
   | { type: "ADD_PENDING_REQUEST"; address: string; pubkeyHex: string }
@@ -117,12 +142,24 @@ export type AppAction =
   | { type: "REMOVE_CONTACT"; address: string }
   | { type: "DELETE_CONVERSATION"; address: string }
   | { type: "CLEAR_CONVERSATION"; address: string }
-  | {
-      type: "UPDATE_FILE_REF";
-      contactAddress: string;
-      messageId: string;
-      fileRef: Partial<FileRef>;
-    };
+  | { type: "UPDATE_FILE_REF"; contactAddress: string; messageId: string; fileRef: Partial<FileRef> }
+  | { type: "SET_DISAPPEAR_TIMER"; contactAddress: string; disappearAfterMs: number | undefined }
+  | { type: "EXPIRE_MESSAGES"; contactAddress: string }
+  // Groups
+  | { type: "ADD_GROUP"; group: Group }
+  | { type: "LOAD_GROUPS"; groups: Record<string, Group> }
+  | { type: "OPEN_GROUP"; groupId: string }
+  | { type: "RECEIVE_GROUP_MESSAGE"; groupId: string; message: LocalMessage }
+  | { type: "SEND_GROUP_MESSAGE"; groupId: string; message: LocalMessage }
+  | { type: "UPDATE_GROUP_MESSAGE_STATUS"; groupId: string; messageId: string; status: "delivered" | "failed" }
+  | { type: "UPDATE_GROUP_FILE_REF"; groupId: string; messageId: string; fileRef: Partial<FileRef> }
+  | { type: "REMOVE_GROUP"; groupId: string }
+  | { type: "UPDATE_GROUP_MEMBERS"; groupId: string; memberAddresses: string[] }
+  | { type: "SET_GROUP_DISAPPEAR_TIMER"; groupId: string; disappearAfterMs: number | undefined }
+  | { type: "EXPIRE_GROUP_MESSAGES"; groupId: string }
+  | { type: "LOAD_GROUP_CONVERSATIONS"; groupConversations: Record<string, GroupConversation> }
+  // Calls
+  | { type: "SET_CALL"; call: CallState };
 
 // ── Reducer ────────────────────────────────────────────────────────────────
 
@@ -135,8 +172,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, keystore: action.keystore };
 
     case "UNLOCK_WALLET":
-      // privateKey is intentionally ignored here — AppContext's wrappedDispatch
-      // captures it in a ref before calling this reducer.
       return { ...state, wallet: action.wallet, screen: "home" };
 
     case "ADD_CONTACT":
@@ -150,6 +185,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         currentContactAddress: action.contactAddress,
+        currentGroupId: null,
         screen: "conversation",
         unreadCounts: { ...state.unreadCounts, [action.contactAddress]: 0 },
         conversations: existing
@@ -167,37 +203,39 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "SEND_MESSAGE": {
       const existing = state.conversations[action.contactAddress];
-      const updated: Conversation = {
-        contactAddress: action.contactAddress,
-        messages: [...(existing?.messages ?? []), action.message],
-        lastActivity: action.message.timestamp,
-      };
       return {
         ...state,
-        conversations: { ...state.conversations, [action.contactAddress]: updated },
+        conversations: {
+          ...state.conversations,
+          [action.contactAddress]: {
+            contactAddress: action.contactAddress,
+            messages: [...(existing?.messages ?? []), action.message],
+            lastActivity: action.message.timestamp,
+            ...(existing?.disappearAfterMs !== undefined ? { disappearAfterMs: existing.disappearAfterMs } : {}),
+          },
+        },
       };
     }
 
     case "RECEIVE_MESSAGE": {
       const existing = state.conversations[action.contactAddress];
-      const updated: Conversation = {
-        contactAddress: action.contactAddress,
-        messages: [...(existing?.messages ?? []), action.message],
-        lastActivity: action.message.timestamp,
-      };
       const isCurrentConv =
         state.screen === "conversation" &&
         state.currentContactAddress === action.contactAddress;
       return {
         ...state,
-        conversations: { ...state.conversations, [action.contactAddress]: updated },
+        conversations: {
+          ...state.conversations,
+          [action.contactAddress]: {
+            contactAddress: action.contactAddress,
+            messages: [...(existing?.messages ?? []), action.message],
+            lastActivity: action.message.timestamp,
+            ...(existing?.disappearAfterMs !== undefined ? { disappearAfterMs: existing.disappearAfterMs } : {}),
+          },
+        },
         unreadCounts: isCurrentConv
           ? state.unreadCounts
-          : {
-              ...state.unreadCounts,
-              [action.contactAddress]:
-                (state.unreadCounts[action.contactAddress] ?? 0) + 1,
-            },
+          : { ...state.unreadCounts, [action.contactAddress]: (state.unreadCounts[action.contactAddress] ?? 0) + 1 },
       };
     }
 
@@ -219,10 +257,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     }
 
     case "SET_PEER_STATUS":
-      return {
-        ...state,
-        peerStatuses: { ...state.peerStatuses, [action.address]: action.status },
-      };
+      return { ...state, peerStatuses: { ...state.peerStatuses, [action.address]: action.status } };
 
     case "LOAD_CONTACTS":
       return { ...state, contacts: action.contacts };
@@ -231,18 +266,13 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, conversations: action.conversations };
 
     case "ADD_PENDING_REQUEST": {
-      // Don't overwrite an existing contact or a request we already have
       if (state.contacts[action.address]) return state;
       if (state.pendingContactRequests[action.address]) return state;
       return {
         ...state,
         pendingContactRequests: {
           ...state.pendingContactRequests,
-          [action.address]: {
-            address: action.address,
-            pubkeyHex: action.pubkeyHex,
-            receivedAt: Date.now(),
-          },
+          [action.address]: { address: action.address, pubkeyHex: action.pubkeyHex, receivedAt: Date.now() },
         },
       };
     }
@@ -256,19 +286,21 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "RENAME_CONTACT": {
       const existing = state.contacts[action.address];
       if (!existing) return state;
-      const renamed: Contact = action.nickname
-        ? { address: existing.address, pubkeyHex: existing.pubkeyHex, nickname: action.nickname }
-        : { address: existing.address, pubkeyHex: existing.pubkeyHex };
       return {
         ...state,
-        contacts: { ...state.contacts, [action.address]: renamed },
+        contacts: {
+          ...state.contacts,
+          [action.address]: action.nickname
+            ? { ...existing, nickname: action.nickname }
+            : { address: existing.address, pubkeyHex: existing.pubkeyHex },
+        },
       };
     }
 
     case "REMOVE_CONTACT": {
-      const nextContacts = { ...state.contacts };
-      delete nextContacts[action.address];
-      return { ...state, contacts: nextContacts };
+      const next = { ...state.contacts };
+      delete next[action.address];
+      return { ...state, contacts: next };
     }
 
     case "DELETE_CONVERSATION": {
@@ -280,10 +312,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         conversations: nextConvs,
         unreadCounts: nextUnread,
-        currentContactAddress:
-          state.currentContactAddress === action.address ? null : state.currentContactAddress,
-        screen:
-          state.currentContactAddress === action.address ? "home" : state.screen,
+        currentContactAddress: state.currentContactAddress === action.address ? null : state.currentContactAddress,
+        screen: state.currentContactAddress === action.address ? "home" : state.screen,
       };
     }
 
@@ -292,10 +322,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       if (!conv) return state;
       return {
         ...state,
-        conversations: {
-          ...state.conversations,
-          [action.address]: { ...conv, messages: [], lastActivity: 0 },
-        },
+        conversations: { ...state.conversations, [action.address]: { ...conv, messages: [], lastActivity: 0 } },
         unreadCounts: { ...state.unreadCounts, [action.address]: 0 },
       };
     }
@@ -318,6 +345,187 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         },
       };
     }
+
+    case "SET_DISAPPEAR_TIMER": {
+      const conv = state.conversations[action.contactAddress];
+      const base: Conversation = conv ?? { contactAddress: action.contactAddress, messages: [], lastActivity: 0 };
+      const { disappearAfterMs: _dms, ...rest } = base;
+      const updated: Conversation = action.disappearAfterMs !== undefined
+        ? { ...rest, disappearAfterMs: action.disappearAfterMs }
+        : rest;
+      return {
+        ...state,
+        conversations: { ...state.conversations, [action.contactAddress]: updated },
+      };
+    }
+
+    case "EXPIRE_MESSAGES": {
+      const conv = state.conversations[action.contactAddress];
+      if (!conv) return state;
+      const now = Date.now();
+      const alive = conv.messages.filter((m) => !m.expiresAt || m.expiresAt > now);
+      if (alive.length === conv.messages.length) return state;
+      return {
+        ...state,
+        conversations: { ...state.conversations, [action.contactAddress]: { ...conv, messages: alive } },
+      };
+    }
+
+    // ── Groups ──────────────────────────────────────────────────────────────
+
+    case "ADD_GROUP":
+      return { ...state, groups: { ...state.groups, [action.group.id]: action.group } };
+
+    case "LOAD_GROUPS":
+      return { ...state, groups: action.groups };
+
+    case "OPEN_GROUP": {
+      const existing = state.groupConversations[action.groupId];
+      return {
+        ...state,
+        currentGroupId: action.groupId,
+        currentContactAddress: null,
+        screen: "group-conversation",
+        unreadCounts: { ...state.unreadCounts, [action.groupId]: 0 },
+        groupConversations: existing
+          ? state.groupConversations
+          : {
+              ...state.groupConversations,
+              [action.groupId]: { groupId: action.groupId, messages: [], lastActivity: Date.now() },
+            },
+      };
+    }
+
+    case "SEND_GROUP_MESSAGE": {
+      const existing = state.groupConversations[action.groupId];
+      return {
+        ...state,
+        groupConversations: {
+          ...state.groupConversations,
+          [action.groupId]: {
+            groupId: action.groupId,
+            messages: [...(existing?.messages ?? []), action.message],
+            lastActivity: action.message.timestamp,
+            ...(existing?.disappearAfterMs !== undefined ? { disappearAfterMs: existing.disappearAfterMs } : {}),
+          },
+        },
+      };
+    }
+
+    case "RECEIVE_GROUP_MESSAGE": {
+      const existing = state.groupConversations[action.groupId];
+      const isActive = state.screen === "group-conversation" && state.currentGroupId === action.groupId;
+      return {
+        ...state,
+        groupConversations: {
+          ...state.groupConversations,
+          [action.groupId]: {
+            groupId: action.groupId,
+            messages: [...(existing?.messages ?? []), action.message],
+            lastActivity: action.message.timestamp,
+            ...(existing?.disappearAfterMs !== undefined ? { disappearAfterMs: existing.disappearAfterMs } : {}),
+          },
+        },
+        unreadCounts: isActive
+          ? state.unreadCounts
+          : { ...state.unreadCounts, [action.groupId]: (state.unreadCounts[action.groupId] ?? 0) + 1 },
+      };
+    }
+
+    case "UPDATE_GROUP_MESSAGE_STATUS": {
+      const conv = state.groupConversations[action.groupId];
+      if (!conv) return state;
+      return {
+        ...state,
+        groupConversations: {
+          ...state.groupConversations,
+          [action.groupId]: {
+            ...conv,
+            messages: conv.messages.map((m) =>
+              m.id === action.messageId ? { ...m, status: action.status } : m
+            ),
+          },
+        },
+      };
+    }
+
+    case "UPDATE_GROUP_FILE_REF": {
+      const conv = state.groupConversations[action.groupId];
+      if (!conv) return state;
+      return {
+        ...state,
+        groupConversations: {
+          ...state.groupConversations,
+          [action.groupId]: {
+            ...conv,
+            messages: conv.messages.map((m) =>
+              m.id === action.messageId
+                ? { ...m, fileRef: m.fileRef ? { ...m.fileRef, ...action.fileRef } : (action.fileRef as FileRef) }
+                : m
+            ),
+          },
+        },
+      };
+    }
+
+    case "REMOVE_GROUP": {
+      const nextGroups = { ...state.groups };
+      delete nextGroups[action.groupId];
+      const nextGCs = { ...state.groupConversations };
+      delete nextGCs[action.groupId];
+      const nextUnread = { ...state.unreadCounts };
+      delete nextUnread[action.groupId];
+      return {
+        ...state,
+        groups: nextGroups,
+        groupConversations: nextGCs,
+        unreadCounts: nextUnread,
+        currentGroupId: state.currentGroupId === action.groupId ? null : state.currentGroupId,
+        screen: state.currentGroupId === action.groupId ? "home" : state.screen,
+      };
+    }
+
+    case "UPDATE_GROUP_MEMBERS": {
+      const group = state.groups[action.groupId];
+      if (!group) return state;
+      return {
+        ...state,
+        groups: { ...state.groups, [action.groupId]: { ...group, memberAddresses: action.memberAddresses } },
+      };
+    }
+
+    case "SET_GROUP_DISAPPEAR_TIMER": {
+      const gc = state.groupConversations[action.groupId];
+      const base: GroupConversation = gc ?? { groupId: action.groupId, messages: [], lastActivity: 0 };
+      const { disappearAfterMs: _dms, ...rest } = base;
+      const updated: GroupConversation = action.disappearAfterMs !== undefined
+        ? { ...rest, disappearAfterMs: action.disappearAfterMs }
+        : rest;
+      return {
+        ...state,
+        groupConversations: { ...state.groupConversations, [action.groupId]: updated },
+      };
+    }
+
+    case "EXPIRE_GROUP_MESSAGES": {
+      const gc = state.groupConversations[action.groupId];
+      if (!gc) return state;
+      const now = Date.now();
+      const alive = gc.messages.filter((m) => !m.expiresAt || m.expiresAt > now);
+      if (alive.length === gc.messages.length) return state;
+      return {
+        ...state,
+        groupConversations: { ...state.groupConversations, [action.groupId]: { ...gc, messages: alive } },
+      };
+    }
+
+    case "LOAD_GROUP_CONVERSATIONS":
+      return { ...state, groupConversations: action.groupConversations };
+
+    // ── Calls ───────────────────────────────────────────────────────────────
+
+    case "SET_CALL":
+      return { ...state, call: action.call };
 
     default:
       return state;

@@ -449,24 +449,34 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
     await window.nullBridge.storage.put(`file:${contactAddress}:${transferId}`, btoa(b64));
 
     try {
-      // Send meta
-      pm.sendTo(contactAddress, JSON.stringify(meta as FileMetaChunk));
+      // Send meta — fail fast if channel is closed
+      if (!pm.sendTo(contactAddress, JSON.stringify(meta as FileMetaChunk))) {
+        throw new Error("Peer disconnected");
+      }
 
-      // Send chunks with backpressure
-      const BACKPRESSURE_THRESHOLD = 1 * 1024 * 1024;
+      // 128KB backpressure + 8ms inter-chunk pacing keeps TURN relays happy
+      const BACKPRESSURE_THRESHOLD = 128 * 1024;
       for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileBytes.byteLength);
         const chunk = fileBytes.slice(start, end);
 
+        // Drain backpressure
+        let waited = 0;
         while (pm.getBufferedAmount(contactAddress) > BACKPRESSURE_THRESHOLD) {
-          await new Promise((r) => setTimeout(r, 50));
+          await new Promise((r) => setTimeout(r, 20));
+          waited += 20;
+          if (waited > 30_000) throw new Error("Send timeout — peer may have disconnected");
         }
 
         const { data, iv } = await encryptFileChunk(key, chunk);
         const chunkMsg: FileDataChunk = { type: "file-chunk", transferId, index: i + 1, data, iv };
-        pm.sendTo(contactAddress, JSON.stringify(chunkMsg));
+        if (!pm.sendTo(contactAddress, JSON.stringify(chunkMsg))) {
+          throw new Error("Peer disconnected during transfer");
+        }
 
+        // Small pacing delay prevents flooding TURN relay
+        await new Promise((r) => setTimeout(r, 8));
         setFileProgress(`Sending ${file.name}… ${i + 1}/${totalChunks}`);
       }
 
@@ -481,7 +491,7 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
     } catch (err) {
       console.error("File send failed:", err);
       dispatch({ type: "UPDATE_MESSAGE_STATUS", contactAddress, messageId: transferId, status: "failed" });
-      setFileError("File send failed.");
+      setFileError(err instanceof Error ? err.message : "File send failed — try again.");
     } finally {
       setFileProgress(null);
     }

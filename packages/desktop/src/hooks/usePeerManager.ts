@@ -9,6 +9,11 @@ import {
   decryptFileChunk,
   CHUNK_SIZE,
   type FileMetaChunk,
+  parseGroupWireMessage,
+  decryptGroupKey,
+  decryptGroupMessage,
+  type Group,
+  type GroupWireMessage,
 } from "@null/core/messaging";
 import { useApp } from "../context/AppContext.js";
 import type { LocalMessage, Contact } from "../context/reducer.js";
@@ -140,6 +145,9 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
   const contactsRef = useRef(state.contacts);
   contactsRef.current = state.contacts;
 
+  const groupsRef = useRef(state.groups);
+  groupsRef.current = state.groups;
+
   // In-memory file transfer buffers (cleared on unmount)
   const fileBuffers = useRef(new Map<string, FileBuffer>());
 
@@ -163,6 +171,99 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
         (msgId) => dispatch({ type: "UPDATE_MESSAGE_STATUS", contactAddress: peerAddress, messageId: msgId, status: "failed" })
       );
     });
+
+    // ── Group message handler ─────────────────────────────────────────────────
+
+    async function handleGroupMessage(
+      msg: GroupWireMessage,
+      fromAddress: string,
+      privKey: Uint8Array
+    ): Promise<void> {
+      if (msg.type === "group-key") {
+        const sender: Contact | undefined = contactsRef.current[fromAddress];
+        if (!sender) return;
+        let groupKeyHex: string;
+        try {
+          groupKeyHex = await decryptGroupKey(
+            msg.encryptedKeyIv,
+            msg.encryptedKeyCiphertext,
+            privKey,
+            hexToBytes(sender.pubkeyHex)
+          );
+        } catch {
+          return;
+        }
+        const group: Group = {
+          id: msg.groupId,
+          name: msg.groupName,
+          adminAddress: msg.adminAddress,
+          memberAddresses: msg.memberAddresses,
+          createdAt: msg.createdAt,
+          groupKeyHex,
+        };
+        await window.nullBridge.storage.put(`group:${group.id}`, JSON.stringify(group));
+        dispatch({ type: "ADD_GROUP", group });
+        if (document.hidden && typeof Notification !== "undefined") {
+          new Notification("Null — New Group", {
+            body: `You've been added to "${msg.groupName}"`,
+            silent: false,
+          });
+        }
+      } else if (msg.type === "group-msg") {
+        const group = groupsRef.current[msg.groupId];
+        if (!group) return;
+        let content: string;
+        try {
+          content = await decryptGroupMessage(msg.ciphertext, msg.iv, group.groupKeyHex);
+        } catch {
+          return;
+        }
+        const local: LocalMessage = {
+          id: msg.messageId,
+          fromAddress: msg.fromAddress,
+          toAddress: msg.groupId,
+          content,
+          timestamp: msg.timestamp,
+          status: "delivered",
+          ...(msg.expiresIn !== undefined ? { expiresAt: msg.timestamp + msg.expiresIn } : {}),
+        };
+        dispatch({ type: "RECEIVE_GROUP_MESSAGE", groupId: msg.groupId, message: local });
+        void window.nullBridge.storage.put(
+          `gmsg:${msg.groupId}:${tsKey(msg.timestamp)}:${msg.messageId}`,
+          JSON.stringify(local)
+        );
+        if (document.hidden && typeof Notification !== "undefined") {
+          const senderName =
+            contactsRef.current[msg.fromAddress]?.nickname ??
+            `${msg.fromAddress.slice(0, 6)}…${msg.fromAddress.slice(-4)}`;
+          new Notification(`Null — ${group.name}`, {
+            body: `${senderName}: ${content}`,
+            silent: false,
+          });
+        }
+      } else if (msg.type === "group-member-update") {
+        const group = groupsRef.current[msg.groupId];
+        if (!group || msg.adminAddress !== group.adminAddress) return;
+        const updated =
+          msg.action === "add"
+            ? [...group.memberAddresses, msg.targetAddress]
+            : group.memberAddresses.filter((a) => a !== msg.targetAddress);
+        dispatch({ type: "UPDATE_GROUP_MEMBERS", groupId: msg.groupId, memberAddresses: updated });
+        void window.nullBridge.storage.put(
+          `group:${msg.groupId}`,
+          JSON.stringify({ ...group, memberAddresses: updated })
+        );
+      } else if (msg.type === "group-leave") {
+        const group = groupsRef.current[msg.groupId];
+        if (!group) return;
+        const updated = group.memberAddresses.filter((a) => a !== msg.fromAddress);
+        dispatch({ type: "UPDATE_GROUP_MEMBERS", groupId: msg.groupId, memberAddresses: updated });
+        void window.nullBridge.storage.put(
+          `group:${msg.groupId}`,
+          JSON.stringify({ ...group, memberAddresses: updated })
+        );
+      }
+    }
 
     // ── Incoming message ─────────────────────────────────────────────────────
     pm.onMessage(async (fromAddress, rawData) => {
@@ -267,17 +368,41 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
                 btoa(b64)
               );
             }
-          } catch {
-            // Decryption failure — skip chunk
+          } catch (err) {
+            console.error("[file-transfer] chunk decryption failed:", err);
+            // Mark transfer as failed so the UI shows an error
+            dispatch({
+              type: "UPDATE_MESSAGE_STATUS",
+              contactAddress: fromAddress,
+              messageId: buf.messageId,
+              status: "failed",
+            });
+            fileBuffers.current.delete(fileMsg.transferId);
           }
           return;
         }
 
         if (fileMsg.type === "file-complete") {
-          // Sender confirms all chunks sent — if we're still missing some,
-          // they'll be noted as incomplete. No action needed for now.
+          const buf = fileBuffers.current.get(fileMsg.transferId);
+          if (buf && buf.chunks.size < buf.meta.totalChunks) {
+            // Sender finished but we're missing chunks — mark failed
+            dispatch({
+              type: "UPDATE_MESSAGE_STATUS",
+              contactAddress: fromAddress,
+              messageId: buf.messageId,
+              status: "failed",
+            });
+            fileBuffers.current.delete(fileMsg.transferId);
+          }
           return;
         }
+        return;
+      }
+
+      // ── Group wire messages ──────────────────────────────────────────────
+      const groupMsg = parseGroupWireMessage(rawData);
+      if (groupMsg) {
+        await handleGroupMessage(groupMsg, fromAddress, privKey);
         return;
       }
 

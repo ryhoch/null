@@ -7,6 +7,8 @@ import { UnlockPage } from "./pages/UnlockPage.js";
 import { HomePage } from "./pages/HomePage.js";
 import { ConversationPage } from "./pages/ConversationPage.js";
 import { AddContactPage } from "./pages/AddContactPage.js";
+import { GroupConversationPage } from "./pages/GroupConversationPage.js";
+import { CreateGroupPage } from "./pages/CreateGroupPage.js";
 
 export function App() {
   const { state } = useApp();
@@ -69,6 +71,12 @@ export function App() {
       )}
 
       {state.screen === "add-contact" && <AddContactPage />}
+
+      {state.screen === "group-conversation" && state.currentGroupId && (
+        <GroupConversationPage pmRef={pmRef} />
+      )}
+
+      {state.screen === "create-group" && <CreateGroupPage pmRef={pmRef} />}
     </Layout>
   );
 }

@@ -145,6 +145,10 @@ export function HomePage() {
     (a, b) => b.lastActivity - a.lastActivity
   );
 
+  const sortedGroups = Object.values(state.groupConversations).sort(
+    (a, b) => b.lastActivity - a.lastActivity
+  );
+
   // Contacts that haven't been messaged yet
   const newContacts = Object.values(state.contacts).filter(
     (c) => !state.conversations[c.address]
@@ -185,6 +189,12 @@ export function HomePage() {
           {copied && <span style={s.copiedLabel}>copied!</span>}
           <button style={s.copyBtn} onClick={handleCopyLink} title="Copy your share link to clipboard">
             share my link
+          </button>
+          <button
+            style={s.copyBtn}
+            onClick={() => dispatch({ type: "SET_SCREEN", screen: "create-group" })}
+          >
+            + Group
           </button>
           <button
             style={s.btn}
@@ -250,7 +260,75 @@ export function HomePage() {
           </button>
         ))}
 
-        {sorted.length === 0 && newContacts.length === 0 && pendingRequests.length === 0 && (
+        {/* Group conversations */}
+        {sortedGroups.map((gc) => {
+          const group = state.groups[gc.groupId];
+          if (!group) return null;
+          const lastMsg = gc.messages[gc.messages.length - 1];
+          const unread = state.unreadCounts[gc.groupId] ?? 0;
+          const isActive = state.currentGroupId === gc.groupId && state.screen === "group-conversation";
+          return (
+            <button
+              key={gc.groupId}
+              style={{
+                background: isActive ? "var(--bg-surface-2)" : "transparent",
+                border: "none",
+                borderBottom: "1px solid var(--border)",
+                color: "var(--muted)",
+                cursor: "pointer",
+                fontSize: "12px",
+                fontFamily: "var(--font)",
+                padding: "12px 16px",
+                textAlign: "left" as const,
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+              onClick={() => dispatch({ type: "OPEN_GROUP", groupId: gc.groupId })}
+            >
+              <div style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "4px",
+                background: "rgba(0,255,65,0.1)",
+                border: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "13px",
+                flexShrink: 0,
+              }}>
+                #
+              </div>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <div style={{ color: "var(--green)", marginBottom: "2px", display: "flex", justifyContent: "space-between" }}>
+                  <span>{group.name}</span>
+                  {unread > 0 && (
+                    <span style={{
+                      background: "var(--green)",
+                      color: "#000",
+                      borderRadius: "10px",
+                      fontSize: "10px",
+                      padding: "1px 6px",
+                      fontWeight: "bold",
+                    }}>
+                      {unread}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: "10px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                  {lastMsg
+                    ? `${lastMsg.fromAddress.slice(0, 6)}…: ${lastMsg.content.slice(0, 40)}`
+                    : `${group.memberAddresses.length} members`
+                  }
+                </div>
+              </div>
+            </button>
+          );
+        })}
+
+        {sorted.length === 0 && newContacts.length === 0 && pendingRequests.length === 0 && sortedGroups.length === 0 && (
           <div style={s.empty}>
             No contacts yet.
             <br />
