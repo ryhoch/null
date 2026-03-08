@@ -13,6 +13,9 @@ import type { WebSocket } from "ws";
 export class Registry {
   private readonly map = new Map<string, WebSocket>();
 
+  /** Pending nonces for unauthenticated connections (socket → nonce). */
+  private readonly pendingNonces = new Map<WebSocket, string>();
+
   register(address: string, socket: WebSocket): void {
     // Close stale socket if the address re-registers (e.g., page reload)
     const existing = this.map.get(address);
@@ -31,6 +34,7 @@ export class Registry {
   }
 
   removeBySocket(socket: WebSocket): void {
+    this.pendingNonces.delete(socket);
     for (const [addr, ws] of this.map) {
       if (ws === socket) {
         this.map.delete(addr);
@@ -41,5 +45,17 @@ export class Registry {
 
   size(): number {
     return this.map.size;
+  }
+
+  /** Store a challenge nonce for an unauthenticated socket. */
+  storePending(socket: WebSocket, nonce: string): void {
+    this.pendingNonces.set(socket, nonce);
+  }
+
+  /** Retrieve and remove the nonce for a socket (one-time use). */
+  consumePending(socket: WebSocket): string | undefined {
+    const nonce = this.pendingNonces.get(socket);
+    this.pendingNonces.delete(socket);
+    return nonce;
   }
 }

@@ -187,6 +187,9 @@ export function HomePage() {
         <div style={s.title}>Conversations</div>
         <div style={s.headerActions}>
           {copied && <span style={s.copiedLabel}>copied!</span>}
+          <button style={s.copyBtn} onClick={() => void window.nullBridge.system.launchNova()} title="Open Nova DeFi">
+            open nova
+          </button>
           <button style={s.copyBtn} onClick={handleCopyLink} title="Copy your share link to clipboard">
             share my link
           </button>
@@ -318,10 +321,16 @@ export function HomePage() {
                   )}
                 </div>
                 <div style={{ fontSize: "10px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
-                  {lastMsg
-                    ? `${lastMsg.fromAddress.slice(0, 6)}…: ${lastMsg.content.slice(0, 40)}`
-                    : `${group.memberAddresses.length} members`
-                  }
+                  {lastMsg ? (() => {
+                    const sender = state.contacts[lastMsg.fromAddress]?.nickname
+                      ?? `${lastMsg.fromAddress.slice(0, 6)}…`;
+                    const preview = lastMsg.fileRef?.mimeType.startsWith("audio/")
+                      ? "🎤 Voice note"
+                      : lastMsg.disappeared
+                      ? "[ message disappeared ]"
+                      : lastMsg.content.slice(0, 40);
+                    return `${sender}: ${preview}`;
+                  })() : `${group.memberAddresses.length} members`}
                 </div>
               </div>
             </button>

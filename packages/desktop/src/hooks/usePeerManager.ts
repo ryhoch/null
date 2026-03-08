@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { PeerManager } from "@null/core/p2p";
 import { decryptMessage } from "@null/core/messaging";
-import { hexToBytes } from "@null/core/crypto";
+import { hexToBytes, signChallenge } from "@null/core/crypto";
 import type { EncryptedMessage } from "@null/core/crypto";
 import {
   parseFileWireMessage,
@@ -135,9 +135,25 @@ interface FileBuffer {
   fromAddress: string;
 }
 
+// ── Call types ───────────────────────────────────────────────────────────────
+
+export interface CallFunctions {
+  initiate: (peerAddress: string, video: boolean) => void;
+  answer: (video: boolean) => void;
+  reject: () => void;
+  end: () => void;
+  toggleMute: () => void;
+  toggleCamera: () => void;
+}
+
+export interface UsePeerManagerResult {
+  pmRef: MutableRefObject<PeerManager | null>;
+  call: CallFunctions;
+}
+
 // ── Hook ────────────────────────────────────────────────────────────────────
 
-export function usePeerManager(): MutableRefObject<PeerManager | null> {
+export function usePeerManager(): UsePeerManagerResult {
   const { state, dispatch, getPrivateKey } = useApp();
   const pmRef = useRef<PeerManager | null>(null);
 
@@ -151,11 +167,24 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
   // In-memory file transfer buffers (cleared on unmount)
   const fileBuffers = useRef(new Map<string, FileBuffer>());
 
+  // ── Call refs (avoid stale closures across async media setup) ────────────
+  const callConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const activeCallIdRef = useRef<string | null>(null);
+  const callStateRef = useRef(state.call);
+  callStateRef.current = state.call;
+
   useEffect(() => {
     if (!state.wallet) return;
 
     const walletAddress = state.wallet.address;
-    const pm = new PeerManager(window.nullBridge.signalingUrl, walletAddress);
+    const pm = new PeerManager(
+      window.nullBridge.signalingUrl,
+      walletAddress,
+      undefined,
+      (nonce) => signChallenge(nonce, getPrivateKey()!)
+    );
     pmRef.current = pm;
 
     dispatch({ type: "SET_PEER_STATUS", address: walletAddress, status: "connecting" });
@@ -434,6 +463,127 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
         }
       } catch { /* not a disappear-timer message */ }
 
+      // ── Call wire messages ───────────────────────────────────────────────
+      try {
+        const obj = JSON.parse(rawData) as Record<string, unknown>;
+        const callType = obj["type"] as string | undefined;
+
+        if (callType === "call-request") {
+          const callId = obj["callId"] as string;
+          const video = obj["video"] === true;
+          activeCallIdRef.current = callId;
+          dispatch({ type: "SET_CALL", call: { status: "incoming", peerAddress: fromAddress, video, callId } });
+          return;
+        }
+
+        if (callType === "call-accept") {
+          // We initiated, now create offer
+          const video = callStateRef.current.status === "outgoing" ? callStateRef.current.video : false;
+          void (async () => {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
+              localStreamRef.current = stream;
+              const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+              callConnectionRef.current = pc;
+              stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+              pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                  pmRef.current?.sendTo(fromAddress, JSON.stringify({
+                    type: "call-ice", callId: activeCallIdRef.current, candidate: e.candidate.toJSON(),
+                  }));
+                }
+              };
+              pc.ontrack = (e) => {
+                const remoteAudio = document.getElementById("null-remote-audio") as HTMLAudioElement | null;
+                if (remoteAudio && e.streams[0]) remoteAudio.srcObject = e.streams[0];
+              };
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              pmRef.current?.sendTo(fromAddress, JSON.stringify({
+                type: "call-offer-sdp", callId: activeCallIdRef.current, sdp: offer.sdp,
+              }));
+            } catch { dispatch({ type: "SET_CALL", call: { status: "idle" } }); }
+          })();
+          return;
+        }
+
+        if (callType === "call-reject") {
+          cleanupCall();
+          dispatch({ type: "SET_CALL", call: { status: "idle" } });
+          return;
+        }
+
+        if (callType === "call-end") {
+          cleanupCall();
+          dispatch({ type: "SET_CALL", call: { status: "idle" } });
+          return;
+        }
+
+        if (callType === "call-offer-sdp") {
+          // Callee: received offer, create answer
+          const sdp = obj["sdp"] as string;
+          const callId = obj["callId"] as string;
+          const video = callStateRef.current.status === "incoming" ? callStateRef.current.video : false;
+          void (async () => {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
+              localStreamRef.current = stream;
+              const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+              callConnectionRef.current = pc;
+              stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+              pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                  pmRef.current?.sendTo(fromAddress, JSON.stringify({
+                    type: "call-ice", callId, candidate: e.candidate.toJSON(),
+                  }));
+                }
+              };
+              pc.ontrack = (e) => {
+                const remoteAudio = document.getElementById("null-remote-audio") as HTMLAudioElement | null;
+                if (remoteAudio && e.streams[0]) remoteAudio.srcObject = e.streams[0];
+              };
+              // Drain queued ICE candidates
+              await pc.setRemoteDescription({ type: "offer", sdp });
+              for (const c of iceCandidateQueueRef.current) { void pc.addIceCandidate(c); }
+              iceCandidateQueueRef.current = [];
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              pmRef.current?.sendTo(fromAddress, JSON.stringify({
+                type: "call-answer-sdp", callId, sdp: answer.sdp,
+              }));
+              dispatch({ type: "SET_CALL", call: { status: "active", peerAddress: fromAddress, video, startedAt: Date.now(), muted: false, cameraOff: false } });
+            } catch { dispatch({ type: "SET_CALL", call: { status: "idle" } }); }
+          })();
+          return;
+        }
+
+        if (callType === "call-answer-sdp") {
+          // Caller: received answer
+          const sdp = obj["sdp"] as string;
+          const pc = callConnectionRef.current;
+          if (!pc) return;
+          const cs = callStateRef.current;
+          const video = cs.status === "outgoing" ? cs.video : false;
+          void pc.setRemoteDescription({ type: "answer", sdp }).then(async () => {
+            for (const c of iceCandidateQueueRef.current) { void pc.addIceCandidate(c); }
+            iceCandidateQueueRef.current = [];
+            dispatch({ type: "SET_CALL", call: { status: "active", peerAddress: fromAddress, video, startedAt: Date.now(), muted: false, cameraOff: false } });
+          });
+          return;
+        }
+
+        if (callType === "call-ice") {
+          const candidate = obj["candidate"] as RTCIceCandidateInit;
+          const pc = callConnectionRef.current;
+          if (pc && pc.remoteDescription) {
+            void pc.addIceCandidate(candidate);
+          } else {
+            iceCandidateQueueRef.current.push(candidate);
+          }
+          return;
+        }
+      } catch { /* not a call message */ }
+
       // ── Chat messages ────────────────────────────────────────────────────
       const parsed = parseIncoming(rawData);
       if (!parsed) return;
@@ -495,10 +645,76 @@ export function usePeerManager(): MutableRefObject<PeerManager | null> {
       pm.closeAll();
       pmRef.current = null;
       fileBuffers.current.clear();
+      cleanupCall();
     };
   }, [state.wallet?.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return pmRef;
+  // ── Call helper ────────────────────────────────────────────────────────────
+  function cleanupCall() {
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current = null;
+    callConnectionRef.current?.close();
+    callConnectionRef.current = null;
+    iceCandidateQueueRef.current = [];
+    activeCallIdRef.current = null;
+  }
+
+  // ── Call control functions ──────────────────────────────────────────────────
+  const call: CallFunctions = {
+    initiate(peerAddress, video) {
+      const callId = crypto.randomUUID();
+      activeCallIdRef.current = callId;
+      pmRef.current?.sendTo(peerAddress, JSON.stringify({ type: "call-request", callId, video }));
+      dispatch({ type: "SET_CALL", call: { status: "outgoing", peerAddress, video, startedAt: Date.now() } });
+    },
+
+    answer(_video) {
+      const cs = callStateRef.current;
+      if (cs.status !== "incoming") return;
+      pmRef.current?.sendTo(cs.peerAddress, JSON.stringify({ type: "call-accept", callId: cs.callId }));
+      // Media + RTCPeerConnection created when we receive call-offer-sdp from initiator
+    },
+
+    reject() {
+      const cs = callStateRef.current;
+      if (cs.status !== "incoming") return;
+      pmRef.current?.sendTo(cs.peerAddress, JSON.stringify({ type: "call-reject", callId: cs.callId }));
+      cleanupCall();
+      dispatch({ type: "SET_CALL", call: { status: "idle" } });
+    },
+
+    end() {
+      const cs = callStateRef.current;
+      const peerAddress = cs.status !== "idle" ? cs.peerAddress : null;
+      if (peerAddress) {
+        pmRef.current?.sendTo(peerAddress, JSON.stringify({ type: "call-end" }));
+      }
+      cleanupCall();
+      dispatch({ type: "SET_CALL", call: { status: "idle" } });
+    },
+
+    toggleMute() {
+      const stream = localStreamRef.current;
+      if (!stream) return;
+      const cs = callStateRef.current;
+      if (cs.status !== "active") return;
+      const muted = !cs.muted;
+      stream.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+      dispatch({ type: "SET_CALL", call: { ...cs, muted } });
+    },
+
+    toggleCamera() {
+      const stream = localStreamRef.current;
+      if (!stream) return;
+      const cs = callStateRef.current;
+      if (cs.status !== "active") return;
+      const cameraOff = !cs.cameraOff;
+      stream.getVideoTracks().forEach((t) => { t.enabled = !cameraOff; });
+      dispatch({ type: "SET_CALL", call: { ...cs, cameraOff } });
+    },
+  };
+
+  return { pmRef, call };
 }
 
 // ── Re-export helpers so ConversationPage can use them ─────────────────────

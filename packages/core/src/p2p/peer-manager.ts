@@ -24,12 +24,14 @@ export class PeerManager {
   constructor(
     signalingUrl: string,
     private readonly localAddress: string,
-    WSImpl?: new (url: string) => WebSocket
+    WSImpl?: new (url: string) => WebSocket,
+    sign?: (nonce: string) => { signature: string; recovery: 0 | 1 }
   ) {
     this.signalingClient = new SignalingClient(
       signalingUrl,
       localAddress,
-      WSImpl
+      WSImpl,
+      sign
     );
     this.setupSignalingHandlers();
   }

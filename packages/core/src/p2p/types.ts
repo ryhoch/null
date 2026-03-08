@@ -3,7 +3,8 @@ export type SignalingMessageType =
   | "offer"
   | "answer"
   | "ice-candidate"
-  | "peer-unavailable";
+  | "peer-unavailable"
+  | "challenge";
 
 export interface SignalingMessage {
   type: SignalingMessageType;

@@ -133,8 +133,8 @@ function GroupMessageBubble({ message, isMine, senderLabel, now }: BubbleProps) 
       {!isMine && senderLabel && (
         <div
           style={{
-            fontSize: "10px",
-            color: "var(--muted)",
+            fontSize: "11px",
+            color: "var(--green-dim)",
             marginBottom: "3px",
             paddingLeft: "2px",
           }}

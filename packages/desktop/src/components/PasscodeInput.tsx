@@ -65,7 +65,7 @@ export function PasscodeInput({ mode, onSubmit, label, error, loading }: Props) 
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (value.length < 6) return;
+    if (value.length < 8) return;
     onSubmit(value);
     setValue("");
   }
@@ -79,7 +79,7 @@ export function PasscodeInput({ mode, onSubmit, label, error, loading }: Props) 
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder}
-        minLength={6}
+        minLength={8}
         autoFocus
         style={{
           ...s.input,
@@ -87,19 +87,19 @@ export function PasscodeInput({ mode, onSubmit, label, error, loading }: Props) 
         }}
         disabled={loading}
       />
-      {value.length > 0 && value.length < 6 && (
+      {value.length > 0 && value.length < 8 && (
         <span style={{ fontSize: "11px", color: "var(--muted)" }}>
-          minimum 6 characters ({6 - value.length} more)
+          minimum 8 characters ({8 - value.length} more)
         </span>
       )}
       {error && <span style={s.error}>{error}</span>}
       <button
         type="submit"
-        disabled={value.length < 6 || loading}
+        disabled={value.length < 8 || loading}
         style={{
           ...s.btn,
-          opacity: value.length < 6 || loading ? 0.4 : 1,
-          cursor: value.length < 6 || loading ? "not-allowed" : "pointer",
+          opacity: value.length < 8 || loading ? 0.4 : 1,
+          cursor: value.length < 8 || loading ? "not-allowed" : "pointer",
         }}
       >
         {loading ? "working..." : mode === "enter" ? "Unlock" : "Continue →"}

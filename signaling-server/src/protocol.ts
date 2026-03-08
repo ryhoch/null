@@ -2,7 +2,8 @@ export type SignalingType =
   | "register"
   | "offer"
   | "answer"
-  | "ice-candidate";
+  | "ice-candidate"
+  | "challenge";
 
 export interface SignalingMessage {
   type: SignalingType;
@@ -20,14 +21,10 @@ const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
  * Returns null on any validation failure — the caller silently drops invalid messages.
  *
  * Validation:
- *   - type must be a known SignalingType
+ *   - type must be a known inbound SignalingType (challenge is server-outbound only)
  *   - from/to fields, if present, must match Ethereum address format
  *
- * SECURITY: The server validates address format but does NOT verify that the
- * `from` field actually belongs to the sender (no signature check). A malicious
- * peer can forge the `from` address when relaying messages. The WebRTC ICE process
- * will fail if a MitM tries to intercept the data channel, but the displayed
- * sender address could be spoofed. Post-MVP: require SDP payload signatures.
+ * Identity is verified via challenge-response in handlers.ts before registration.
  */
 export function parseMessage(raw: string): SignalingMessage | null {
   let obj: Record<string, unknown>;

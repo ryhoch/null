@@ -23,6 +23,13 @@ export function createSignalingServer() {
   });
 
   wss.on("connection", (socket: WebSocket) => {
+    // Issue a challenge immediately — client must sign it with their private key to register
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    registry.storePending(socket, nonce);
+    socket.send(JSON.stringify({ type: "challenge", payload: { nonce } }));
+
     socket.on("message", (raw) => {
       const msg = parseMessage(raw.toString());
       if (msg === null) return; // silently drop invalid messages

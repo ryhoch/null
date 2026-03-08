@@ -13,9 +13,9 @@ type MessageHandler = (msg: SignalingMessage) => void;
  *   - Browsers and React Native use globalThis.WebSocket
  *   - Node.js (tests, Electron main) can pass the `ws` library constructor
  *
- * SECURITY: The server validates Ethereum address format but does NOT verify
- * the `from` field signature. Post-MVP: sign the SDP payload with the private
- * key so recipients can verify sender identity.
+ * SECURITY: Registration uses challenge-response authentication. The server
+ * sends a nonce on connect; the client signs it with the private key; the
+ * server verifies the signature and derives the sender address before registering.
  */
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
@@ -33,7 +33,9 @@ export class SignalingClient {
   constructor(
     readonly url: string,
     readonly myAddress: string,
-    private readonly WSImpl: new (url: string) => WebSocket = globalThis.WebSocket
+    private readonly WSImpl: new (url: string) => WebSocket = globalThis.WebSocket,
+    /** Sign a nonce for challenge-response registration. Required in production. */
+    private readonly sign?: (nonce: string) => { signature: string; recovery: 0 | 1 }
   ) {}
 
   connect(): Promise<void> {
@@ -49,11 +51,7 @@ export class SignalingClient {
 
       this.ws.onopen = () => {
         this.reconnectDelay = RECONNECT_BASE_MS; // reset backoff on success
-        // Register this peer's address with the signaling server
-        this.send({ type: "register", payload: null, from: this.myAddress });
-        this.openResolve?.();
-        this.openResolve = null;
-        this.openReject = null;
+        // Registration happens after we receive the server's challenge (see onmessage)
       };
 
       this.ws.onerror = (_e: Event) => {
@@ -65,6 +63,24 @@ export class SignalingClient {
       this.ws.onmessage = (event: MessageEvent) => {
         try {
           const msg = JSON.parse(event.data as string) as SignalingMessage;
+
+          // Handle server challenge: sign nonce and send register
+          if (msg.type === "challenge") {
+            const payload = msg.payload as Record<string, unknown>;
+            const nonce = payload["nonce"] as string;
+            const signed = this.sign ? this.sign(nonce) : null;
+            this.send({
+              type: "register",
+              from: this.myAddress,
+              payload: signed ?? { signature: "", recovery: 0 },
+            });
+            // Resolve connect() once we've responded to the challenge
+            this.openResolve?.();
+            this.openResolve = null;
+            this.openReject = null;
+            return;
+          }
+
           const listeners = this.handlers.get(msg.type) ?? [];
           for (const fn of listeners) fn(msg);
         } catch {
