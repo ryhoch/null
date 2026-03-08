@@ -9,6 +9,7 @@ import { ConversationPage } from "./pages/ConversationPage.js";
 import { AddContactPage } from "./pages/AddContactPage.js";
 import { GroupConversationPage } from "./pages/GroupConversationPage.js";
 import { CreateGroupPage } from "./pages/CreateGroupPage.js";
+import { CallOverlay } from "./components/CallOverlay.js";
 
 export function App() {
   const { state } = useApp();
@@ -27,7 +28,7 @@ export function App() {
   }, [state.unreadCounts]);
 
   // PeerManager lifecycle — starts when wallet is unlocked, cleans up on unmount
-  const pmRef = usePeerManager();
+  const { pmRef, call } = usePeerManager();
 
   // ── Pre-wallet screens ────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ export function App() {
         <ConversationPage
           contactAddress={state.currentContactAddress}
           pmRef={pmRef}
+          call={call}
         />
       )}
 
@@ -77,6 +79,8 @@ export function App() {
       )}
 
       {state.screen === "create-group" && <CreateGroupPage pmRef={pmRef} />}
+
+      <CallOverlay call={call} />
     </Layout>
   );
 }

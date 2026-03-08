@@ -24,11 +24,12 @@ import { QRCodeDisplay } from "../components/QRCodeDisplay.js";
 import { PaymentComposer } from "../components/PaymentComposer.js";
 import { useApp } from "../context/AppContext.js";
 import type { LocalMessage } from "../context/reducer.js";
-import { msgStorageKey, wrapEnvelope } from "../hooks/usePeerManager.js";
+import { msgStorageKey, wrapEnvelope, type CallFunctions } from "../hooks/usePeerManager.js";
 
 interface Props {
   contactAddress: string;
   pmRef: MutableRefObject<PeerManager | null>;
+  call: CallFunctions;
 }
 
 const TIMER_OPTIONS: { label: string; ms: number | undefined }[] = [
@@ -86,7 +87,7 @@ function formatRecordingDuration(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export function ConversationPage({ contactAddress, pmRef }: Props) {
+export function ConversationPage({ contactAddress, pmRef, call }: Props) {
   const { state, dispatch, getPrivateKey } = useApp();
 
   const [draft, setDraft] = useState("");
@@ -527,13 +528,29 @@ export function ConversationPage({ contactAddress, pmRef }: Props) {
         </div>
         <div style={s.headerActions}>
           {contact && (
-            <button
-              style={{ ...s.actionBtn, color: showEdit ? "var(--green)" : "var(--muted)" }}
-              onClick={openEdit}
-              title="Edit contact"
-            >
-              edit
-            </button>
+            <>
+              <button
+                style={s.actionBtn}
+                onClick={() => call.initiate(contactAddress, false)}
+                title="Voice call"
+              >
+                🎤
+              </button>
+              <button
+                style={s.actionBtn}
+                onClick={() => call.initiate(contactAddress, true)}
+                title="Video call"
+              >
+                📷
+              </button>
+              <button
+                style={{ ...s.actionBtn, color: showEdit ? "var(--green)" : "var(--muted)" }}
+                onClick={openEdit}
+                title="Edit contact"
+              >
+                edit
+              </button>
+            </>
           )}
           <button
             style={s.actionBtn}
