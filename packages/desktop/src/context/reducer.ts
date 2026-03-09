@@ -49,7 +49,7 @@ export interface LocalMessage {
 export interface PaymentRef {
   txHash: string;
   amount: string;   // human-readable e.g. "0.01"
-  token: string;    // e.g. "ETH", "USDC", "XCV"
+  token: string;    // e.g. "ETH", "USDC", "DEMOS"
   decimals: number;
   fromAddress: string;
   toAddress: string;
