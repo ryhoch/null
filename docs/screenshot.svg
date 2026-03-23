@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="750">
+  <rect width="1200" height="750" fill="#000000"/>
+  <text x="600" y="330" font-family="monospace, 'Courier New', Courier" font-size="140" font-weight="bold" fill="#00e676" text-anchor="middle">{ }</text>
+  <text x="600" y="460" font-family="monospace, 'Courier New', Courier" font-size="72" fill="#00e676" text-anchor="middle">null</text>
+  <text x="600" y="540" font-family="monospace, 'Courier New', Courier" font-size="24" fill="#444444" text-anchor="middle">encrypted peer-to-peer messenger</text>
+</svg>

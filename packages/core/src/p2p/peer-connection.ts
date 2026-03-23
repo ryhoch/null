@@ -17,6 +17,7 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 type MessageHandler = (data: string) => void;
+type DisconnectedHandler = () => void;
 
 /**
  * Manages a single WebRTC peer connection between this client and one remote peer.
@@ -40,6 +41,8 @@ export class NullPeerConnection {
   private dataChannel: RTCDataChannel | null = null;
   private messageHandlers: MessageHandler[] = [];
   private connectedHandlers: Array<() => void> = [];
+  private disconnectedHandlers: DisconnectedHandler[] = [];
+  private disconnectedFired = false;
 
   constructor(
     readonly remoteAddress: string,
@@ -108,6 +111,10 @@ export class NullPeerConnection {
     this.connectedHandlers.push(handler);
   }
 
+  onDisconnected(handler: DisconnectedHandler): void {
+    this.disconnectedHandlers.push(handler);
+  }
+
   close(): void {
     this.dataChannel?.close();
     this.pc.close();
@@ -121,7 +128,20 @@ export class NullPeerConnection {
     return this.dataChannel?.bufferedAmount ?? 0;
   }
 
+  private fireDisconnected(): void {
+    if (this.disconnectedFired) return;
+    this.disconnectedFired = true;
+    for (const h of this.disconnectedHandlers) h();
+  }
+
   private setupPeerConnectionHandlers(): void {
+    this.pc.onconnectionstatechange = () => {
+      const s = this.pc.connectionState;
+      if (s === "disconnected" || s === "failed" || s === "closed") {
+        this.fireDisconnected();
+      }
+    };
+
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
         this.signalingClient.send({
@@ -148,6 +168,10 @@ export class NullPeerConnection {
 
     channel.onmessage = (event: MessageEvent) => {
       for (const h of this.messageHandlers) h(event.data as string);
+    };
+
+    channel.onclose = () => {
+      this.fireDisconnected();
     };
   }
 }

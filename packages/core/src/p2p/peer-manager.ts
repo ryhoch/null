@@ -4,6 +4,7 @@ import type { SignalingMessage } from "./types.js";
 
 type MessageCallback = (fromAddress: string, data: string) => void;
 type PeerConnectedCallback = (address: string) => void;
+type PeerDisconnectedCallback = (address: string) => void;
 
 /**
  * Manages all WebRTC peer connections for a local client.
@@ -20,6 +21,7 @@ export class PeerManager {
   private readonly peers = new Map<string, NullPeerConnection>();
   private onMessageCallback: MessageCallback | null = null;
   private onPeerConnectedCallback: PeerConnectedCallback | null = null;
+  private onPeerDisconnectedCallback: PeerDisconnectedCallback | null = null;
 
   constructor(
     signalingUrl: string,
@@ -57,6 +59,13 @@ export class PeerManager {
    */
   onPeerConnected(callback: PeerConnectedCallback): void {
     this.onPeerConnectedCallback = callback;
+  }
+
+  /**
+   * Register a callback fired when a peer's data channel or connection closes.
+   */
+  onPeerDisconnected(callback: PeerDisconnectedCallback): void {
+    this.onPeerDisconnectedCallback = callback;
   }
 
   /**
@@ -131,6 +140,11 @@ export class PeerManager {
 
     conn.onConnected(() => {
       this.onPeerConnectedCallback?.(remoteAddress);
+    });
+
+    conn.onDisconnected(() => {
+      this.peers.delete(remoteAddress);
+      this.onPeerDisconnectedCallback?.(remoteAddress);
     });
 
     return conn;

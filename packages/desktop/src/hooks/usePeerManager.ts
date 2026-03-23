@@ -189,6 +189,12 @@ export function usePeerManager(): UsePeerManagerResult {
 
     dispatch({ type: "SET_PEER_STATUS", address: walletAddress, status: "connecting" });
 
+    // ── Peer disconnected ────────────────────────────────────────────────────
+    pm.onPeerDisconnected((peerAddress) => {
+      dispatch({ type: "SET_PEER_STATUS", address: peerAddress, status: "disconnected" });
+      dispatch({ type: "SET_LAST_SEEN", address: peerAddress, timestamp: Date.now() });
+    });
+
     // ── Peer connected: drain offline queue ──────────────────────────────────
     pm.onPeerConnected((peerAddress) => {
       dispatch({ type: "SET_PEER_STATUS", address: peerAddress, status: "connected" });
@@ -438,6 +444,21 @@ export function usePeerManager(): UsePeerManagerResult {
       // ── Disappear timer control ────────────────────────────────────────────
       try {
         const obj = JSON.parse(rawData) as Record<string, unknown>;
+        // Typing indicator
+        if (obj["type"] === "typing") {
+          dispatch({ type: "SET_TYPING", peerAddress: fromAddress, timestamp: Date.now() });
+          return;
+        }
+
+        // Read receipt
+        if (obj["type"] === "read-receipt") {
+          const messageId = typeof obj["messageId"] === "string" ? (obj["messageId"] as string) : null;
+          if (messageId) {
+            dispatch({ type: "MARK_MESSAGE_READ", contactAddress: fromAddress, messageId });
+          }
+          return;
+        }
+
         if (obj["type"] === "disappear-timer") {
           const ms = typeof obj["disappearAfterMs"] === "number" ? (obj["disappearAfterMs"] as number) : undefined;
           dispatch({ type: "SET_DISAPPEAR_TIMER", contactAddress: fromAddress, disappearAfterMs: ms });

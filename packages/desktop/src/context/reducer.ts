@@ -44,6 +44,8 @@ export interface LocalMessage {
   payment?: PaymentRef;
   /** True after the message has disappeared (tombstone) */
   disappeared?: boolean;
+  /** True when the recipient has sent a read receipt */
+  read?: boolean;
 }
 
 export interface PaymentRef {
@@ -110,6 +112,10 @@ export interface AppState {
   unreadCounts: Record<string, number>;          // keyed by contact address or group id
   pendingContactRequests: Record<string, PendingContactRequest>;
   call: CallState;
+  /** Unix ms timestamp of last typing event received, keyed by peer address */
+  typingPeers: Record<string, number>;
+  /** Unix ms timestamp when a peer last disconnected, keyed by peer address */
+  lastSeen: Record<string, number>;
 }
 
 export const initialState: AppState = {
@@ -126,6 +132,8 @@ export const initialState: AppState = {
   unreadCounts: {},
   pendingContactRequests: {},
   call: { status: "idle" },
+  typingPeers: {},
+  lastSeen: {},
 };
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -165,7 +173,11 @@ export type AppAction =
   | { type: "EXPIRE_GROUP_MESSAGES"; groupId: string }
   | { type: "LOAD_GROUP_CONVERSATIONS"; groupConversations: Record<string, GroupConversation> }
   // Calls
-  | { type: "SET_CALL"; call: CallState };
+  | { type: "SET_CALL"; call: CallState }
+  // Real-time presence
+  | { type: "SET_TYPING"; peerAddress: string; timestamp: number }
+  | { type: "SET_LAST_SEEN"; address: string; timestamp: number }
+  | { type: "MARK_MESSAGE_READ"; contactAddress: string; messageId: string };
 
 // ── Reducer ────────────────────────────────────────────────────────────────
 
@@ -572,6 +584,31 @@ export function appReducer(state: AppState, action: AppAction): AppState {
 
     case "SET_CALL":
       return { ...state, call: action.call };
+
+    // ── Real-time presence ──────────────────────────────────────────────────
+
+    case "SET_TYPING":
+      return { ...state, typingPeers: { ...state.typingPeers, [action.peerAddress]: action.timestamp } };
+
+    case "SET_LAST_SEEN":
+      return { ...state, lastSeen: { ...state.lastSeen, [action.address]: action.timestamp } };
+
+    case "MARK_MESSAGE_READ": {
+      const conv = state.conversations[action.contactAddress];
+      if (!conv) return state;
+      return {
+        ...state,
+        conversations: {
+          ...state.conversations,
+          [action.contactAddress]: {
+            ...conv,
+            messages: conv.messages.map((m) =>
+              m.id === action.messageId ? { ...m, read: true } : m
+            ),
+          },
+        },
+      };
+    }
 
     default:
       return state;

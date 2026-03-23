@@ -20,11 +20,11 @@ interface Props {
 // ── Disappearing timer options ──────────────────────────────────────────────
 
 const TIMER_OPTIONS: { label: string; value: number | undefined }[] = [
-  { label: "Off",     value: undefined },
-  { label: "1 hour",  value: 60 * 60 * 1000 },
-  { label: "24 hours",value: 24 * 60 * 60 * 1000 },
-  { label: "7 days",  value: 7 * 24 * 60 * 60 * 1000 },
-  { label: "30 days", value: 30 * 24 * 60 * 60 * 1000 },
+  { label: "Off",      value: undefined },
+  { label: "30 sec",   value: 30_000 },
+  { label: "5 min",    value: 5 * 60_000 },
+  { label: "1 hour",   value: 60 * 60_000 },
+  { label: "24 hours", value: 24 * 60 * 60_000 },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

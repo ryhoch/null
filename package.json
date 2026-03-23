@@ -1,12 +1,16 @@
 {
   "name": "null-platform",
+  "version": "0.4.0",
+  "author": "ryhoch",
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "build": "turbo build",
+    "build:web": "pnpm --filter @null/web build",
+    "dev": "turbo dev --parallel",
+    "dev:web": "pnpm --filter @null/web dev",
     "test": "turbo test",
-    "lint": "turbo lint",
-    "dev": "turbo dev --parallel"
+    "lint": "turbo lint"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

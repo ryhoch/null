@@ -187,9 +187,6 @@ export function HomePage() {
         <div style={s.title}>Conversations</div>
         <div style={s.headerActions}>
           {copied && <span style={s.copiedLabel}>copied!</span>}
-          <button style={s.copyBtn} onClick={() => void window.nullBridge.system.launchNova()} title="Open Nova DeFi">
-            open nova
-          </button>
           <button style={s.copyBtn} onClick={handleCopyLink} title="Copy your share link to clipboard">
             share my link
           </button>

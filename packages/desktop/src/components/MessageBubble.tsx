@@ -244,8 +244,11 @@ export function MessageBubble({ message, isMine }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px", color: "var(--muted)" }}>
         <span>{formatTime(message.timestamp)}</span>
         {isMine && (
-          <span style={{ color: status.color, cursor: "default" }} title={status.label}>
-            {status.symbol}
+          <span
+            style={{ color: message.read ? "var(--green)" : status.color, cursor: "default", letterSpacing: message.read ? "-2px" : undefined }}
+            title={message.read ? "read" : status.label}
+          >
+            {message.read ? "✓✓" : status.symbol}
           </span>
         )}
         {countdown !== null && (

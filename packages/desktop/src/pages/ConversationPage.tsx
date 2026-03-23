@@ -33,11 +33,11 @@ interface Props {
 }
 
 const TIMER_OPTIONS: { label: string; ms: number | undefined }[] = [
-  { label: "Off",     ms: undefined },
-  { label: "1 hour",  ms: 60 * 60 * 1000 },
-  { label: "24 hours",ms: 24 * 60 * 60 * 1000 },
-  { label: "7 days",  ms: 7 * 24 * 60 * 60 * 1000 },
-  { label: "30 days", ms: 30 * 24 * 60 * 60 * 1000 },
+  { label: "Off",      ms: undefined },
+  { label: "30 sec",   ms: 30_000 },
+  { label: "5 min",    ms: 5 * 60_000 },
+  { label: "1 hour",   ms: 60 * 60_000 },
+  { label: "24 hours", ms: 24 * 60 * 60_000 },
 ];
 
 const STATUS_COLORS = {
@@ -122,6 +122,16 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
   const disappearAfterMs = conversation?.disappearAfterMs;
   const peerStatus = state.peerStatuses[contactAddress];
   const statusColor = STATUS_COLORS[peerStatus ?? "disconnected"];
+  const lastSeenTs = state.lastSeen[contactAddress];
+  const peerTypingTs = state.typingPeers[contactAddress];
+
+  // Typing indicator: show if peer typed within the last 3 seconds
+  const [peerIsTyping, setPeerIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingCooldownRef = useRef(0); // when we last sent a typing signal
+
+  // Track which read receipts we've already sent (so we don't spam)
+  const sentReadReceiptsRef = useRef(new Set<string>());
 
   const label =
     contact?.nickname ??
@@ -130,6 +140,43 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
   // Keep a ref so the expiry interval doesn't go stale
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+
+  // ── Last seen formatter ────────────────────────────────────────────────────
+  function formatLastSeen(ts: number | undefined): string {
+    if (!ts) return "offline";
+    const diff = Date.now() - ts;
+    if (diff < 60_000) return "last seen just now";
+    if (diff < 3_600_000) return `last seen ${Math.floor(diff / 60_000)}m ago`;
+    if (diff < 86_400_000) return `last seen ${Math.floor(diff / 3_600_000)}h ago`;
+    return `last seen ${Math.floor(diff / 86_400_000)}d ago`;
+  }
+
+  // ── Peer typing indicator ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!peerTypingTs) { setPeerIsTyping(false); return; }
+    const age = Date.now() - peerTypingTs;
+    if (age < 3000) {
+      setPeerIsTyping(true);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => setPeerIsTyping(false), 3000 - age);
+    } else {
+      setPeerIsTyping(false);
+    }
+    return () => { if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); };
+  }, [peerTypingTs]);
+
+  // ── Send read receipts for received messages ───────────────────────────────
+  useEffect(() => {
+    const pm = pmRef.current;
+    if (!pm || peerStatus !== "connected") return;
+    const myAddress = state.wallet?.address;
+    for (const m of messages) {
+      if (m.fromAddress !== myAddress && !sentReadReceiptsRef.current.has(m.id)) {
+        sentReadReceiptsRef.current.add(m.id);
+        pm.sendTo(contactAddress, JSON.stringify({ type: "read-receipt", messageId: m.id }));
+      }
+    }
+  }, [messages, peerStatus, contactAddress, state.wallet?.address]);
 
   // ── Expiry interval ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -279,6 +326,16 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
       console.error("Send failed:", err);
     } finally {
       setSending(false);
+    }
+  }
+
+  function handleDraftChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setDraft(e.target.value);
+    // Send typing signal at most once every 2s
+    const now = Date.now();
+    if (now - typingCooldownRef.current > 2000 && peerStatus === "connected") {
+      typingCooldownRef.current = now;
+      pmRef.current?.sendTo(contactAddress, JSON.stringify({ type: "typing" }));
     }
   }
 
@@ -519,8 +576,8 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
           <button style={s.back} onClick={() => dispatch({ type: "SET_SCREEN", screen: "home" })}>←</button>
           <span style={{ ...s.statusDot, background: statusColor }} />
           <span style={s.contactName}>{label}</span>
-          <span style={{ fontSize: "10px", color: peerStatus === "connecting" ? "#ffaa00" : "var(--muted)" }}>
-            {peerStatus === "connected" ? contactAddress.slice(0, 10) + "…" : peerStatus === "connecting" ? "connecting…" : "offline"}
+          <span style={{ fontSize: "10px", color: peerStatus === "connecting" ? "#ffaa00" : peerStatus === "connected" ? "var(--green-dim)" : "var(--muted)" }}>
+            {peerStatus === "connected" ? "online" : peerStatus === "connecting" ? "connecting…" : formatLastSeen(lastSeenTs)}
           </span>
           {disappearAfterMs !== undefined && (
             <span style={s.timerBadge}>⏱ {timerLabel(disappearAfterMs)}</span>
@@ -639,6 +696,27 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
             isMine={msg.fromAddress === state.wallet?.address}
           />
         ))}
+        {peerIsTyping && (
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 0 8px", marginTop: "4px" }}>
+            <span style={{ fontSize: "10px", color: "var(--muted)" }}>
+              {label}
+            </span>
+            <span style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  style={{
+                    width: "5px",
+                    height: "5px",
+                    borderRadius: "50%",
+                    background: "var(--green-dim)",
+                    animation: `typingDot 1.2s ${i * 0.2}s infinite`,
+                  }}
+                />
+              ))}
+            </span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -715,7 +793,7 @@ export function ConversationPage({ contactAddress, pmRef, call }: Props) {
 
               <textarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={handleDraftChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   !contact

@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ws://localhost:*;"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' wss://null-signaling-production.up.railway.app ws://localhost:*; media-src 'self' blob:;"
     />
     <title>Null — Encrypted Messaging</title>
+    <meta name="description" content="End-to-end encrypted P2P messaging. No phone number, no email — just an Ethereum keypair." />
     <style>
       *,
       *::before,
@@ -79,14 +80,15 @@
         to   { opacity: 1; transform: translateY(0); }
       }
 
-      /* Smooth message entry */
-      [data-msg-bubble] {
-        animation: fadeIn 0.15s ease;
-      }
-
-      /* Ensure text in messages is selectable */
-      .msg-text {
-        user-select: text;
+      /* Mobile-responsive layout */
+      @media (max-width: 600px) {
+        body {
+          height: 100dvh;
+          overflow: hidden;
+        }
+        #root {
+          height: 100dvh;
+        }
       }
     </style>
   </head>

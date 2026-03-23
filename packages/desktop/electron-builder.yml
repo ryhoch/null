@@ -4,12 +4,14 @@ copyright: Copyright © 2025
 
 publish:
   provider: github
-  owner: xxcvv2
+  owner: ryhoch
   repo: "null"
 
 directories:
   output: release
   buildResources: build
+
+npmRebuild: false
 
 files:
   - out/**

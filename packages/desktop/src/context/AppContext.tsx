@@ -204,15 +204,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // When wallet unlocks: load data and write shared identity for Nova
+  // When wallet unlocks: load persisted data
   useEffect(() => {
     if (state.wallet) {
       void loadData(state.wallet.address, dispatch);
-      // Write address+pubkey only (NO private key) so Nova can auto-connect
-      void window.nullBridge.system.writeIdentity(
-        state.wallet.address,
-        state.wallet.pubkeyHex
-      );
     }
   }, [state.wallet?.address]);
 

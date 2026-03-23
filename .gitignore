@@ -3,9 +3,10 @@ dist/
 .turbo/
 *.log
 .env
-.env.local
+.env.*
 *.tsbuildinfo
 coverage/
 .DS_Store
+Thumbs.db
 packages/desktop/out/
 packages/desktop/release/
